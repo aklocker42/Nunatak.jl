@@ -1,0 +1,29 @@
+name = "Nunatak"
+uuid = "6090d1d4-0309-4b62-864e-ed0dc7df3575"
+version = "0.0.1"
+authors = ["Nunatak contributors"]
+
+[deps]
+Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Oceananigans = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
+
+[weakdeps]
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
+
+[extensions]
+NunatakEnzymeExt = "Enzyme"
+NunatakReactantExt = "Reactant"
+
+[compat]
+Adapt = "4"
+DocStringExtensions = "0.9"
+Enzyme = "0.13.78"
+KernelAbstractions = "0.9"
+LinearAlgebra = "1"
+Oceananigans = "0.114"
+Reactant = "0.2.278"
+julia = "1.10"

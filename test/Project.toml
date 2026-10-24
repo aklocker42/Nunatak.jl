@@ -1,0 +1,12 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Nunatak = "6090d1d4-0309-4b62-864e-ed0dc7df3575"
+Oceananigans = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[sources]
+Nunatak = {path = ".."}
