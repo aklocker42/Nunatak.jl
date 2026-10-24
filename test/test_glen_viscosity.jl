@@ -12,7 +12,7 @@ function uniform_strain_viscosity(grid, uᵉ)
 end
 
 function ice_stream_error(Nx; L = 100e3, H₀ = 500, δ = 20, ρ = 917, g = 9.81, A = 1e-24)
-    grid = RectilinearGrid(arch; size = (Nx, 4), x = (0, L), y = (0, L / Nx * 4), topology = (Bounded, Periodic, Flat))
+    grid = RectilinearGrid(arch; size = (Nx, 4), x = (0, L), y = (0, L / Nx * 4), topology = (Bounded, Bounded, Flat))
     σgrid = SigmaGrid(grid; Nσ = 4)
 
     H = CenterField(grid)

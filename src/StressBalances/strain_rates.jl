@@ -4,7 +4,11 @@
 
 @inline strain_rate_xx(i, j, k, grid, u) = ∂xᶜᶜᶜ(i, j, k, grid, interior_u, u)
 @inline strain_rate_yy(i, j, k, grid, v) = ∂yᶜᶜᶜ(i, j, k, grid, interior_v, v)
-@inline strain_rate_xy(i, j, k, grid, u, v) = (∂yᶠᶠᶜ(i, j, k, grid, interior_u, u) + ∂xᶠᶠᶜ(i, j, k, grid, interior_v, v)) / 2
+# Shear vanishes at corners on a wall, so tangential walls are free slip.
+@inline function strain_rate_xy(i, j, k, grid, u, v)
+    ε̇xy = (∂yᶠᶠᶜ(i, j, k, grid, interior_u, u) + ∂xᶠᶠᶜ(i, j, k, grid, interior_v, v)) / 2
+    return ifelse(peripheral_node(i, j, k, grid, Face(), Face(), Center()), zero(grid), ε̇xy)
+end
 
 @inline strain_rate_xy²(i, j, k, grid, u, v) = strain_rate_xy(i, j, k, grid, u, v)^2
 

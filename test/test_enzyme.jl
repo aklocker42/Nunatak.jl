@@ -104,13 +104,21 @@ end
                  Duplicated(x, Enzyme.make_zero(x)), Const(solver), Duplicated(b, Enzyme.make_zero(b)),
                  map(Duplicated, coefficients, shadows)...)
 
-        η̄H, η̄Hᶠᶠ, βᵘ, βᵛ = coefficients
-        dη̄H, dη̄Hᶠᶠ, dβᵘ, dβᵛ = shadows
-        cost() = ssa_velocity_cost(x, solver, b, coefficients...)
+        # Free-slip walls leave the y-mean v mode resisted only by drag, so Float64 differences drown in roundoff.
+        big_grid = RectilinearGrid(BigFloat; size = (8, 6), x = (0, 1), y = (0, 1), topology = (Bounded, Periodic, Flat))
+        big_coefficients = ssa_coefficients(big_grid)
+        big_b = toy_right_hand_side(big_grid)
+        big_x = VelocityVector(big_grid)
+        big_solver = VelocityConjugateGradientSolver(ssa_operator!, big_grid;
+                                                     iteration_control = Convergence(; reltol = big"1e-40", maxiter = 10_000))
+        cost() = ssa_velocity_cost(big_x, big_solver, big_b, big_coefficients...)
 
-        for (name, field, shadow, index) in (("η̄H", η̄H, dη̄H, (3, 2)), ("η̄Hᶠᶠ", η̄Hᶠᶠ, dη̄Hᶠᶠ, (4, 5)),
-                                             ("βᵘ", βᵘ, dβᵘ, (5, 3)), ("βᵛ", βᵛ, dβᵛ, (2, 4)))
-            fd = centred_difference(cost, field, index, 1e-4)
+        dη̄H, dη̄Hᶠᶠ, dβᵘ, dβᵛ = shadows
+        for (name, field, shadow, index) in (("η̄H", big_coefficients[1], dη̄H, (3, 2)),
+                                             ("η̄Hᶠᶠ", big_coefficients[2], dη̄Hᶠᶠ, (4, 5)),
+                                             ("βᵘ", big_coefficients[3], dβᵘ, (5, 3)),
+                                             ("βᵛ", big_coefficients[4], dβᵛ, (2, 4)))
+            fd = centred_difference(cost, field, index, big"1e-15")
             ad = shadow[index..., 1]
             @info "∂J/∂$name" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)

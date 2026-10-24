@@ -18,8 +18,12 @@ end
 @inline x_normal_diagonal(i, j, k, grid, η̄H) = @inbounds 4 * Δyᶜᶜᶜ(i, j, k, grid) * η̄H[i, j, k] / Δxᶜᶜᶜ(i, j, k, grid)
 @inline y_normal_diagonal(i, j, k, grid, η̄H) = @inbounds 4 * Δxᶜᶜᶜ(i, j, k, grid) * η̄H[i, j, k] / Δyᶜᶜᶜ(i, j, k, grid)
 
-@inline x_shear_diagonal(i, j, k, grid, η̄Hᶠᶠ) = @inbounds Δxᶠᶠᶜ(i, j, k, grid) * η̄Hᶠᶠ[i, j, k] / Δyᶠᶠᶜ(i, j, k, grid)
-@inline y_shear_diagonal(i, j, k, grid, η̄Hᶠᶠ) = @inbounds Δyᶠᶠᶜ(i, j, k, grid) * η̄Hᶠᶠ[i, j, k] / Δxᶠᶠᶜ(i, j, k, grid)
+@inline wall_corner(i, j, k, grid) = peripheral_node(i, j, k, grid, Face(), Face(), Center())
+
+@inline x_shear_diagonal(i, j, k, grid, η̄Hᶠᶠ) =
+    @inbounds ifelse(wall_corner(i, j, k, grid), zero(grid), Δxᶠᶠᶜ(i, j, k, grid) * η̄Hᶠᶠ[i, j, k] / Δyᶠᶠᶜ(i, j, k, grid))
+@inline y_shear_diagonal(i, j, k, grid, η̄Hᶠᶠ) =
+    @inbounds ifelse(wall_corner(i, j, k, grid), zero(grid), Δyᶠᶠᶜ(i, j, k, grid) * η̄Hᶠᶠ[i, j, k] / Δxᶠᶠᶜ(i, j, k, grid))
 
 @inline function x_diagonal(i, j, k, grid, η̄H, η̄Hᶠᶠ, βᵘ)
     d = @inbounds Azᶠᶜᶜ(i, j, k, grid) * βᵘ[i, j, k] +
