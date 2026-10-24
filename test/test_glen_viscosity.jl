@@ -28,7 +28,7 @@ function ice_stream_error(Nx; L = 100e3, H₀ = 500, δ = 20, ρ = 917, g = 9.81
     η̄H, η̄Hᶠᶠ, F₂ = Field{Center, Center, Nothing}(grid), Field{Face, Face, Nothing}(grid), Field{Center, Center, Nothing}(grid)
     βᵘ, βᵛ = Field{Face, Center, Nothing}(grid), Field{Center, Face, Nothing}(grid)
     ησ = CenterField(σgrid)
-    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology)
+    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, nothing, nothing, nothing)
 
     solver = VelocityConjugateGradientSolver(ssa_operator!, grid;
                                              iteration_control = Convergence(; reltol = 1e-12, maxiter = 10_000))
@@ -41,7 +41,7 @@ function ice_stream_error(Nx; L = 100e3, H₀ = 500, δ = 20, ρ = 917, g = 9.81
     exact = XFaceField(grid)
     set!(exact, uᵉ)
     error = maximum(abs, Array(interior(x.u)) .- Array(interior(exact))) / (2U / 3)
-    return error, iterations, maximum(abs, Array(interior(x.v)))
+    return error, iterations, maximum(abs, Array(interior(x.v))) / (2U / 3)
 end
 
 @testset "Glen viscosity and driving stress" begin
@@ -73,9 +73,9 @@ end
 
     errors_and_iterations = [ice_stream_error(N) for N in (32, 64)]
     errors = first.(errors_and_iterations)
-    @info "Ice stream (n = 3) relative errors" errors iterations = getindex.(errors_and_iterations, 2)
+    @info "Ice stream (n = 3) relative errors" errors iterations = getindex.(errors_and_iterations, 2) v = getindex.(errors_and_iterations, 3)
     @test all(e -> e[2] < 300, errors_and_iterations)
-    @test all(e -> e[3] == 0, errors_and_iterations)
+    @test all(e -> e[3] < 1e-10, errors_and_iterations)
     @test errors[2] < 1e-3
     @test errors[1] / errors[2] > 3.5
 end

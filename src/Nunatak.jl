@@ -6,7 +6,7 @@ export DepthIntegrated, DIVAShear
 export GlenFlowLaw
 export WeertmanFriction, RegularizedCoulombFriction
 export SubgridGroundedFraction
-export VelocityVector, VelocityConjugateGradientSolver, JacobiPreconditioner
+export VelocityVector, VelocityConjugateGradientSolver, JacobiPreconditioner, StressBalanceDiagonalPreconditioner
 export Convergence, FixedIterations, PicardIteration
 export solve!, adjoint_solve!, precondition!, picard_solve!
 
@@ -22,7 +22,7 @@ using Oceananigans.Grids: AbstractGrid, RectilinearGrid, Flat, Bounded, topology
                           cpu_face_constructor_x, cpu_face_constructor_y, pop_flat_elements, peripheral_node
 using Oceananigans.Operators: δxᶠᶜᶜ, δyᶠᶜᶜ, δxᶜᶠᶜ, δyᶜᶠᶜ, ∂xᶜᶜᶜ, ∂yᶜᶜᶜ, ∂xᶠᶠᶜ, ∂yᶠᶠᶜ, ∂xᶠᶜᶜ, ∂yᶜᶠᶜ,
                               Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Azᶠᶜᶜ, Azᶜᶠᶜ,
-                              ℑxᶠᵃᵃ, ℑyᵃᶠᵃ, ℑxyᶜᶜᵃ, ℑxyᶠᶠᵃ
+                              ℑxᶠᵃᵃ, ℑyᵃᶠᵃ, ℑxyᶜᶜᵃ, ℑxyᶠᶠᵃ, ℑxyᶠᶜᵃ, ℑxyᶜᶠᵃ
 using Oceananigans.TimeSteppers: TimeStepper, Clock, SplitRungeKuttaTimeStepper
 using Oceananigans.Utils: launch!, prettysummary
 
@@ -42,13 +42,14 @@ include("StressBalances/column_integrals.jl")
 include("StressBalances/strain_rates.jl")
 include("StressBalances/ssa_operator.jl")
 include("StressBalances/driving_stress.jl")
-include("StressBalances/stress_balance_coefficients.jl")
 include("Rheologies/glen_flow_law.jl")
 include("Frictions/frictions.jl")
+include("StressBalances/stress_balance_coefficients.jl")
 include("Groundings/subgrid_grounded_fraction.jl")
 include("Solvers/iteration_controls.jl")
 include("Solvers/velocity_vector.jl")
 include("Solvers/conjugate_gradient.jl")
+include("StressBalances/diagonal_preconditioner.jl")
 include("Solvers/picard.jl")
 include("Models/ice_sheet_fields.jl")
 include("Models/ice_sheet_model.jl")
