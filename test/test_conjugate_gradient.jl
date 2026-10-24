@@ -5,7 +5,7 @@ end
 
 
 @testset "Velocity conjugate gradient" begin
-    grid = toy_grid()
+    grid = toy_grid(arch)
     ηH = toy_viscosity(grid)
     b = toy_right_hand_side(grid)
 
@@ -23,7 +23,7 @@ end
 
     λ = VelocityVector(grid)
     adjoint_solve!(λ, solver, b, ηH)
-    @test interior(λ.u) ≈ interior(x.u)
+    @test Array(interior(λ.u)) ≈ Array(interior(x.u))
 
     y = toy_right_hand_side(grid)
     set!(y.u, (x, y) -> cos(6π * y))
@@ -39,8 +39,8 @@ end
                                                      iteration_control = Convergence(; reltol = 1e-12, maxiter = 500))
     xᴾ = VelocityVector(grid)
     solve!(xᴾ, preconditioned, b, ηH)
-    @test interior(xᴾ.u) ≈ interior(x.u)
-    @test interior(xᴾ.v) ≈ interior(x.v)
+    @test Array(interior(xᴾ.u)) ≈ Array(interior(x.u))
+    @test Array(interior(xᴾ.v)) ≈ Array(interior(x.v))
 
     fixed = VelocityConjugateGradientSolver(toy_operator!, grid; iteration_control = FixedIterations(4))
     picard = PicardIteration(grid; iteration_control = FixedIterations(3))
@@ -50,5 +50,5 @@ end
 
     allocations = allocations_after_warmup(picard_solve!, x³, picard, fixed, toy_update_coefficients!, b, ηH)
     @info "Picard(FixedIterations(3)) × CG(FixedIterations(4)) allocations" allocations
-    @test allocations == 0
+    arch isa CPU && @test allocations == 0
 end

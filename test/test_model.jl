@@ -1,5 +1,5 @@
 @testset "IceSheetModel" begin
-    grid = RectilinearGrid(size = (8, 8), x = (0, 1e5), y = (0, 1e5), topology = (Bounded, Bounded, Flat))
+    grid = RectilinearGrid(arch; size = (8, 8), x = (0, 1e5), y = (0, 1e5), topology = (Bounded, Bounded, Flat))
     a = 1e-8
     m = 2e-9
 
@@ -19,7 +19,7 @@
 
     @test iteration(model) == 3
     @test model.clock.time ≈ 3Δt
-    H = interior(model.geometry.H)
+    H = Array(interior(model.geometry.H))
     x = xnodes(grid, Center())
     @test H[:, 1, 1] ≈ 1000 .+ x ./ 1e3 .+ 3Δt * (a - m)
 

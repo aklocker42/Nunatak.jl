@@ -1,9 +1,13 @@
 using Test
 using LinearAlgebra: dot, norm
 using Oceananigans
+using Oceananigans.Architectures: on_architecture
 using Oceananigans.BoundaryConditions: fill_halo_regions!
 using Nunatak
 using Documenter
+
+const arch = get(ENV, "TEST_ARCHITECTURE", "CPU") == "GPU" ? GPU() : CPU()
+@info "Testing on" arch
 
 include("toy_problems.jl")
 
@@ -11,9 +15,12 @@ include("toy_problems.jl")
     include("test_sigma_grid.jl")
     include("test_conjugate_gradient.jl")
     include("test_model.jl")
-    include("test_enzyme.jl")
 
-    @testset "Doctests" begin
-        doctest(Nunatak; manual = false)
+    if arch isa CPU
+        include("test_enzyme.jl")
+
+        @testset "Doctests" begin
+            doctest(Nunatak; manual = false)
+        end
     end
 end
