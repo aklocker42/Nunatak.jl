@@ -36,7 +36,7 @@ Base.similar(x::VelocityVector) = VelocityVector(similar(x.u), similar(x.v))
 
 Adapt.adapt_structure(to, x::VelocityVector) = VelocityVector(adapt(to, x.u), adapt(to, x.v))
 
-Oceananigans.fill_halo_regions!(x::VelocityVector, args...; kwargs...) =
+fill_halo_regions!(x::VelocityVector, args...; kwargs...) =
     fill_halo_regions!((x.u, x.v), args...; kwargs...)
 
 """

@@ -17,4 +17,4 @@ $(TYPEDSIGNATURES)
 
 Build a `SubgridGroundedFraction` with the floating-point type of `grid`.
 """
-SubgridGroundedFraction(grid::Oceananigans.Grids.AbstractGrid; smoothing_thickness) = SubgridGroundedFraction(convert(eltype(grid), smoothing_thickness))
+SubgridGroundedFraction(grid::AbstractGrid; smoothing_thickness) = SubgridGroundedFraction(convert(eltype(grid), smoothing_thickness))

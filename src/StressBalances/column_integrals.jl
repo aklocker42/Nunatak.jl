@@ -1,5 +1,3 @@
-using Oceananigans.Grids: znode
-
 # Exact integral of (1 - ζ)² over layer k, so F₂ is exact for layer-wise constant η.
 @inline function shear_weight(k, σgrid)
     ζ⁻ = znode(1, 1, k,   σgrid, Center(), Center(), Face())

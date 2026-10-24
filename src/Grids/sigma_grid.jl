@@ -48,13 +48,13 @@ function SigmaGrid(grid::RectilinearGrid; Nσ = 10, bed_refinement = 2)
     Hx, Hy, _ = halo_size(grid)
     topo = (TX, TY, Bounded)
 
-    horizontal = (x = Oceananigans.Grids.cpu_face_constructor_x(grid),
-                  y = Oceananigans.Grids.cpu_face_constructor_y(grid))
+    horizontal = (x = cpu_face_constructor_x(grid),
+                  y = cpu_face_constructor_y(grid))
 
     horizontal = NamedTuple(name => value for (name, value, T) in zip(keys(horizontal), values(horizontal), (TX, TY)) if T !== Flat)
 
-    sz = Oceananigans.Grids.pop_flat_elements((Nx, Ny, Nσ), topo)
-    halo = Oceananigans.Grids.pop_flat_elements((Hx, Hy, 1), topo)
+    sz = pop_flat_elements((Nx, Ny, Nσ), topo)
+    halo = pop_flat_elements((Hx, Hy, 1), topo)
 
     return RectilinearGrid(architecture(grid), eltype(grid);
                            size = sz, halo, topology = topo,
