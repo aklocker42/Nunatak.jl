@@ -13,7 +13,8 @@ with membrane stresses ``T_{xx} = 2 \\bar{η} H (2 ∂_x u + ∂_y v)``,
 ``T_{xy} = \\bar{η} H (∂_y u + ∂_x v)`` at cell corners. Each row is integrated over its
 velocity cell, so the operator is symmetric positive definite on any `RectilinearGrid`
 and the right-hand side must be area-integrated as well. SSA passes `βᵘ, βᵛ = β`;
-DIVA passes `β / (1 + β F₂)`.
+DIVA passes `β / (1 + β F₂)`. Trailing `args` are ignored, so the Picard coefficient update
+can share the argument list.
 
 Velocities on `Bounded` walls are impenetrable: their rows are the identity and they are
 excluded from the strain rates, so the wall values of `p` do not matter. Tangential walls are
@@ -46,18 +47,15 @@ julia> interior(q.u)[1, 1, 1] # rigid translation feels only the drag, 2 × 3 ×
 0.375
 ```
 """
-function ssa_operator!(q, p, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ)
+function ssa_operator!(q, p, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, args...)
     grid = η̄H.grid
     launch!(architecture(grid), grid, :xyz, _ssa_operator!, q.u, q.v, p.u, p.v, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, grid)
     return nothing
 end
 
-@inline interior_u(i, j, k, grid, u) = @inbounds ifelse(peripheral_node(i, j, k, grid, Face(), Center(), Center()), zero(grid), u[i, j, k])
-@inline interior_v(i, j, k, grid, v) = @inbounds ifelse(peripheral_node(i, j, k, grid, Center(), Face(), Center()), zero(grid), v[i, j, k])
-
-@inline normal_stress_xx(i, j, k, grid, u, v, η̄H) = @inbounds 2 * η̄H[i, j, k] * (2 * ∂xᶜᶜᶜ(i, j, k, grid, interior_u, u) + ∂yᶜᶜᶜ(i, j, k, grid, interior_v, v))
-@inline normal_stress_yy(i, j, k, grid, u, v, η̄H) = @inbounds 2 * η̄H[i, j, k] * (2 * ∂yᶜᶜᶜ(i, j, k, grid, interior_v, v) + ∂xᶜᶜᶜ(i, j, k, grid, interior_u, u))
-@inline shear_stress(i, j, k, grid, u, v, η̄Hᶠᶠ)   = @inbounds η̄Hᶠᶠ[i, j, k] * (∂yᶠᶠᶜ(i, j, k, grid, interior_u, u) + ∂xᶠᶠᶜ(i, j, k, grid, interior_v, v))
+@inline normal_stress_xx(i, j, k, grid, u, v, η̄H) = @inbounds 2 * η̄H[i, j, k] * (2 * strain_rate_xx(i, j, k, grid, u) + strain_rate_yy(i, j, k, grid, v))
+@inline normal_stress_yy(i, j, k, grid, u, v, η̄H) = @inbounds 2 * η̄H[i, j, k] * (2 * strain_rate_yy(i, j, k, grid, v) + strain_rate_xx(i, j, k, grid, u))
+@inline shear_stress(i, j, k, grid, u, v, η̄Hᶠᶠ)   = @inbounds 2 * η̄Hᶠᶠ[i, j, k] * strain_rate_xy(i, j, k, grid, u, v)
 
 @inline Δy_normal_stress_xx(i, j, k, grid, u, v, η̄H) = Δyᶜᶜᶜ(i, j, k, grid) * normal_stress_xx(i, j, k, grid, u, v, η̄H)
 @inline Δx_normal_stress_yy(i, j, k, grid, u, v, η̄H) = Δxᶜᶜᶜ(i, j, k, grid) * normal_stress_yy(i, j, k, grid, u, v, η̄H)
