@@ -27,7 +27,7 @@ struct IceSheetModel{TS, Arch, G, SG, C, SB, R, F, GR, TH, U, GE, B, A, M, AU, V
     thermodynamics :: TH
     "velocities `(u, v, uᵇ, vᵇ, uσ, vσ)`"
     velocities :: U
-    "geometry `(H, s, φ, ice_mask)`"
+    "geometry `(H, s, φ, φᵘ, φᵛ, N, ice_mask)`"
     geometry :: GE
     "bed elevation"
     bed :: B

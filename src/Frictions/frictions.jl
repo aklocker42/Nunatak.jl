@@ -95,8 +95,8 @@ end
 $(TYPEDSIGNATURES)
 
 Compute the basal drag coefficients `βᵘ`, `βᵛ` at the velocity points from the basal velocity
-`(u, v)`, scaled by the grounded fraction `φ`. `N` is the effective pressure, used only by
-`RegularizedCoulombFriction`. `u`, `v`, `φ`, `N` and the friction coefficient need filled halos.
+`(u, v)`, scaled by the grounded fractions `φᵘ`, `φᵛ` at the velocity points. `N` is the effective
+pressure, used only by `RegularizedCoulombFriction`. `u`, `v`, `N` and the friction coefficient need filled halos.
 With `friction = nothing` the drag coefficients are left unchanged.
 
 ```jldoctest
@@ -114,21 +114,21 @@ julia> set!(u, 1); set!(v, 0);
 
 julia> βᵘ, βᵛ = XFaceField(grid), YFaceField(grid);
 
-julia> φ = CenterField(grid); set!(φ, 1); fill_halo_regions!(φ);
+julia> φᵘ, φᵛ = XFaceField(grid), YFaceField(grid); set!(φᵘ, 1); set!(φᵛ, 1);
 
 julia> friction = WeertmanFriction(grid; coefficient = 2, velocity_regularization = 0);
 
-julia> compute_basal_drag!(βᵘ, βᵛ, friction, u, v, φ, nothing)
+julia> compute_basal_drag!(βᵘ, βᵛ, friction, u, v, φᵘ, φᵛ, nothing)
 
 julia> βᵘ[2, 1, 1]
 2.0
 ```
 """
-function compute_basal_drag!(βᵘ, βᵛ, friction, u, v, φ, N)
+function compute_basal_drag!(βᵘ, βᵛ, friction, u, v, φᵘ, φᵛ, N)
     grid = u.grid
     arch = architecture(grid)
-    launch!(arch, grid, size(βᵘ), _compute_x_basal_drag!, βᵘ, u, v, φ, N, friction, grid)
-    launch!(arch, grid, size(βᵛ), _compute_y_basal_drag!, βᵛ, u, v, φ, N, friction, grid)
+    launch!(arch, grid, size(βᵘ), _compute_x_basal_drag!, βᵘ, u, v, φᵘ, N, friction, grid)
+    launch!(arch, grid, size(βᵛ), _compute_y_basal_drag!, βᵛ, u, v, φᵛ, N, friction, grid)
     return nothing
 end
 
@@ -139,22 +139,22 @@ compute_basal_drag!(βᵘ, βᵛ, ::Nothing, args...) = nothing
 @inline effective_pressureᶠᶜᶜ(i, j, k, grid, ::Nothing) = zero(grid)
 @inline effective_pressureᶜᶠᶜ(i, j, k, grid, ::Nothing) = zero(grid)
 
-@kernel function _compute_x_basal_drag!(βᵘ, u, v, φ, N, friction, grid)
+@kernel function _compute_x_basal_drag!(βᵘ, u, v, φᵘ, N, friction, grid)
     i, j, k = @index(Global, NTuple)
     U = sqrt(x_speed²(i, j, k, grid, u, v) + friction.velocity_regularization^2)
     Cᶠ = ℑxᶠᵃᵃ(i, j, k, grid, friction.coefficient)
     Nᶠ = effective_pressureᶠᶜᶜ(i, j, k, grid, N)
-    β = ℑxᶠᵃᵃ(i, j, k, grid, φ) * basal_drag(U, Cᶠ, Nᶠ, friction)
+    β = @inbounds φᵘ[i, j, k] * basal_drag(U, Cᶠ, Nᶠ, friction)
     wall = peripheral_node(i, j, k, grid, Face(), Center(), Center())
     @inbounds βᵘ[i, j, k] = ifelse(wall, zero(grid), β)
 end
 
-@kernel function _compute_y_basal_drag!(βᵛ, u, v, φ, N, friction, grid)
+@kernel function _compute_y_basal_drag!(βᵛ, u, v, φᵛ, N, friction, grid)
     i, j, k = @index(Global, NTuple)
     U = sqrt(y_speed²(i, j, k, grid, u, v) + friction.velocity_regularization^2)
     Cᶠ = ℑyᵃᶠᵃ(i, j, k, grid, friction.coefficient)
     Nᶠ = effective_pressureᶜᶠᶜ(i, j, k, grid, N)
-    β = ℑyᵃᶠᵃ(i, j, k, grid, φ) * basal_drag(U, Cᶠ, Nᶠ, friction)
+    β = @inbounds φᵛ[i, j, k] * basal_drag(U, Cᶠ, Nᶠ, friction)
     wall = peripheral_node(i, j, k, grid, Center(), Face(), Center())
     @inbounds βᵛ[i, j, k] = ifelse(wall, zero(grid), β)
 end

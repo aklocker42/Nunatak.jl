@@ -3,10 +3,10 @@ $(TYPEDSIGNATURES)
 
 Freeze the stress-balance coefficients at the velocity `x`: Glen viscosity `ησ`, its column
 integrals `η̄H` and `F₂`, `η̄H` interpolated to the cell corners `η̄Hᶠᶠ`, and the basal drag
-`βᵘ`, `βᵛ` scaled by the grounded fraction `φ` (`N` is the effective pressure). The argument list
+`βᵘ`, `βᵛ` scaled by the grounded fractions `φᵘ`, `φᵛ` (`N` is the effective pressure). The argument list
 after `x` is the one `ssa_operator!` takes, so this is the `update_coefficients!` of `picard_solve!`.
 """
-function update_stress_balance_coefficients!(x, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φ, N)
+function update_stress_balance_coefficients!(x, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, N)
     grid = H.grid
     fill_halo_regions!(x)
     compute_viscosity!(ησ, rheology, x.u, x.v)
@@ -14,7 +14,7 @@ function update_stress_balance_coefficients!(x, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ
     fill_halo_regions!(η̄H)
     launch!(architecture(grid), grid, size(η̄Hᶠᶠ), _interpolate_to_corners!, η̄Hᶠᶠ, η̄H, grid)
     fill_halo_regions!(η̄Hᶠᶠ)
-    compute_basal_drag!(βᵘ, βᵛ, friction, x.u, x.v, φ, N)
+    compute_basal_drag!(βᵘ, βᵛ, friction, x.u, x.v, φᵘ, φᵛ, N)
     return nothing
 end
 

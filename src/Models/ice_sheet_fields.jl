@@ -18,14 +18,18 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Ice thickness `H`, surface elevation `s`, grounded fraction `φ` and ice mask, all at `(Center, Center)`.
+Ice thickness `H`, surface elevation `s`, grounded fraction `φ`, effective pressure `N` and ice mask at
+`(Center, Center)`, and the grounded fractions `φᵘ`, `φᵛ` at the velocity points.
 """
 function ice_sheet_geometry(grid)
     H = Field{Center, Center, Nothing}(grid)
     s = Field{Center, Center, Nothing}(grid)
     φ = Field{Center, Center, Nothing}(grid)
+    φᵘ = Field{Face, Center, Nothing}(grid)
+    φᵛ = Field{Center, Face, Nothing}(grid)
+    N = Field{Center, Center, Nothing}(grid)
     ice_mask = Field{Center, Center, Nothing}(grid)
-    return (; H, s, φ, ice_mask)
+    return (; H, s, φ, φᵘ, φᵛ, N, ice_mask)
 end
 
 """

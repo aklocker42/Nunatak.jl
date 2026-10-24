@@ -15,6 +15,12 @@ function driving_stress_cost(τ, H, s)
     return sum_of_squares(τ)
 end
 
+function grounded_fraction_cost(φ, φᵘ, φᵛ, grounding, H, b)
+    fill_halo_regions!(H)
+    Nunatak.compute_grounded_fractions!(φ, φᵘ, φᵛ, grounding, H, b)
+    return sum_of_squares(φ) + sum_of_squares(φᵘ) + sum_of_squares(φᵛ)
+end
+
 function velocity_cost(x, solver, b, ηH)
     fill_halo_regions!(ηH)
     fill!(x, 0)
@@ -59,6 +65,29 @@ end
             fd = centred_difference(() -> driving_stress_cost(τ, H, s), H, index, 1.0)
             ad = dH[index..., 1]
             @info "∂J/∂H" index ad fd
+            @test abs(ad - fd) < 1e-6 * abs(fd)
+        end
+    end
+
+    @testset "Grounded fraction kernels through launch!" begin
+        grounding_grid = RectilinearGrid(size = (12, 8), x = (0, 12), y = (0, 8), topology = (Bounded, Periodic, Flat))
+        grounding = SubgridGroundedFraction(grounding_grid)
+        ρ = grounding.ice_density / grounding.ocean_density
+        H, b = CenterField(grounding_grid), CenterField(grounding_grid)
+        set!(H, (x, y) -> 1000 + 10x)
+        set!(b, (x, y) -> ρ * (30 * (6 + sin(2π * y / 8) - x) - 1000 - 10x))
+        fill_halo_regions!(b)
+        φ, φᵘ, φᵛ = CenterField(grounding_grid), XFaceField(grounding_grid), YFaceField(grounding_grid)
+
+        dH = Enzyme.make_zero(H)
+        autodiff(set_runtime_activity(Reverse), grounded_fraction_cost, Active,
+                 Duplicated(φ, Enzyme.make_zero(φ)), Duplicated(φᵘ, Enzyme.make_zero(φᵘ)), Duplicated(φᵛ, Enzyme.make_zero(φᵛ)),
+                 Const(grounding), Duplicated(H, dH), Const(b))
+
+        for index in ((7, 2), (6, 5), (7, 7))
+            fd = centred_difference(() -> grounded_fraction_cost(φ, φᵘ, φᵛ, grounding, H, b), H, index, 1e-3)
+            ad = dH[index..., 1]
+            @info "∂J/∂H through φ" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
         end
     end
