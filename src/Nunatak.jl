@@ -19,7 +19,9 @@ using Oceananigans
 using Oceananigans: AbstractModel
 using Oceananigans.Fields: interior
 using Oceananigans.Grids: AbstractGrid, RectilinearGrid, Flat, Bounded, topology, halo_size, znode,
-                          cpu_face_constructor_x, cpu_face_constructor_y, pop_flat_elements
+                          cpu_face_constructor_x, cpu_face_constructor_y, pop_flat_elements, peripheral_node
+using Oceananigans.Operators: δxᶠᶜᶜ, δyᶠᶜᶜ, δxᶜᶠᶜ, δyᶜᶠᶜ, ∂xᶜᶜᶜ, ∂yᶜᶜᶜ, ∂xᶠᶠᶜ, ∂yᶠᶠᶜ,
+                              Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Azᶠᶜᶜ, Azᶜᶠᶜ
 using Oceananigans.TimeSteppers: TimeStepper, Clock, SplitRungeKuttaTimeStepper
 using Oceananigans.Utils: launch!, prettysummary
 
@@ -36,6 +38,7 @@ include("Grids/sigma_grid.jl")
 include("Fields/parameter_fields.jl")
 include("StressBalances/depth_integrated.jl")
 include("StressBalances/column_integrals.jl")
+include("StressBalances/ssa_operator.jl")
 include("Rheologies/glen_flow_law.jl")
 include("Frictions/frictions.jl")
 include("Groundings/subgrid_grounded_fraction.jl")

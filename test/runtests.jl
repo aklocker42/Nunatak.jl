@@ -14,6 +14,7 @@ include("toy_problems.jl")
 @testset "Nunatak" begin
     include("test_sigma_grid.jl")
     include("test_conjugate_gradient.jl")
+    include("test_ssa_operator.jl")
     include("test_model.jl")
 
     if arch isa CPU

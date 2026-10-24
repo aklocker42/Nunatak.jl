@@ -32,9 +32,9 @@ function EnzymeRules.augmented_primal(config, func::Const{typeof(solve!)}, ::Typ
     solve!(x.val, solver.val, b.val, map(a -> a.val, args)...)
     tape = copy_vector(x.val)
     primal = EnzymeRules.needs_primal(config) ? x.val : nothing
-    shadow = EnzymeRules.needs_shadow(config) ? x.dval : nothing
+    x̄ = EnzymeRules.needs_shadow(config) ? shadow(x) : nothing
 
-    return EnzymeRules.AugmentedReturn(primal, shadow, tape)
+    return EnzymeRules.AugmentedReturn(primal, x̄, tape)
 end
 
 function EnzymeRules.reverse(config, func::Const{typeof(solve!)}, ::Type{RT}, tape,

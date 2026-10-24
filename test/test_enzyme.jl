@@ -22,6 +22,13 @@ function velocity_cost(x, solver, b, ηH)
     return sum_of_squares(x.u) + sum_of_squares(x.v)
 end
 
+function ssa_velocity_cost(x, solver, b, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ)
+    fill_halo_regions!((η̄H, η̄Hᶠᶠ, βᵘ, βᵛ))
+    fill!(x, 0)
+    solve!(x, solver, b, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ)
+    return sum_of_squares(x.u) + sum_of_squares(x.v)
+end
+
 function centred_difference(cost, field, index, h)
     i, j = index
     field[i, j, 1] += h
@@ -82,5 +89,31 @@ end
         ad = db.u[2, 3, 1]
         @info "∂J/∂bᵘ" ad fd
         @test abs(ad - fd) < 1e-6 * abs(fd)
+    end
+
+    @testset "Custom adjoint of solve! through the SSA operator" begin
+        grid = RectilinearGrid(size = (8, 6), x = (0, 1), y = (0, 1), topology = (Bounded, Periodic, Flat))
+        coefficients = ssa_coefficients(grid)
+        b = toy_right_hand_side(grid)
+        x = VelocityVector(grid)
+        solver = VelocityConjugateGradientSolver(ssa_operator!, grid;
+                                                 iteration_control = Convergence(; reltol = 1e-14, maxiter = 10_000))
+
+        shadows = map(Enzyme.make_zero, coefficients)
+        autodiff(set_runtime_activity(Reverse), ssa_velocity_cost, Active,
+                 Duplicated(x, Enzyme.make_zero(x)), Const(solver), Duplicated(b, Enzyme.make_zero(b)),
+                 map(Duplicated, coefficients, shadows)...)
+
+        η̄H, η̄Hᶠᶠ, βᵘ, βᵛ = coefficients
+        dη̄H, dη̄Hᶠᶠ, dβᵘ, dβᵛ = shadows
+        cost() = ssa_velocity_cost(x, solver, b, coefficients...)
+
+        for (name, field, shadow, index) in (("η̄H", η̄H, dη̄H, (3, 2)), ("η̄Hᶠᶠ", η̄Hᶠᶠ, dη̄Hᶠᶠ, (4, 5)),
+                                             ("βᵘ", βᵘ, dβᵘ, (5, 3)), ("βᵛ", βᵛ, dβᵛ, (2, 4)))
+            fd = centred_difference(cost, field, index, 1e-4)
+            ad = shadow[index..., 1]
+            @info "∂J/∂$name" index ad fd
+            @test abs(ad - fd) < 1e-6 * abs(fd)
+        end
     end
 end
