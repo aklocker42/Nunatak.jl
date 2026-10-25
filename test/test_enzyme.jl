@@ -1,4 +1,5 @@
 using Enzyme
+using Nunatak: ice_sheet_velocities, ice_sheet_auxiliary_fields, update_diva_coefficients!, compute_velocity_profile!
 
 function sum_of_squares(f)
     Nx, Ny, _ = size(f)
@@ -33,6 +34,56 @@ function ssa_velocity_cost(x, solver, b, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ)
     fill!(x, 0)
     solve!(x, solver, b, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ)
     return sum_of_squares(x.u) + sum_of_squares(x.v)
+end
+
+function sum_of_column_squares(f)
+    Nx, Ny, Nz = size(f)
+    J = zero(eltype(f))
+    for k in 1:Nz, j in 1:Ny, i in 1:Nx
+        @inbounds J += f[i, j, k]^2
+    end
+    return J
+end
+
+function diva_velocity_cost(velocities, picard, solver, τ, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, N, βᵇᵘ, βᵇᵛ)
+    (; u, v, uᵇ, vᵇ, uσ, vσ) = velocities
+    for field in (u, v, ησ, F₂, βᵇᵘ, βᵇᵛ)
+        fill!(field, 0)
+    end
+    fill_halo_regions!((rheology.rate_factor, friction.coefficient))
+    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, N, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ)
+    picard_solve!(VelocityVector(u, v), picard, solver, update_diva_coefficients!, τ, coefficients...)
+    fill_halo_regions!(ησ)
+    compute_velocity_profile!(velocities, βᵇᵘ, βᵇᵛ, F₂, ησ, H)
+    return sum_of_squares(u) + sum_of_squares(v) + sum_of_column_squares(uσ) + sum_of_column_squares(vσ)
+end
+
+# Sliding and deformation of comparable size, so the gradient runs through both βᵇ and the shear integrals.
+function diva_problem(; Lx = 8e4, Ly = 6e4, τ₀ = 1e4)
+    grid = RectilinearGrid(size = (8, 6), x = (0, Lx), y = (0, Ly), topology = (Bounded, Periodic, Flat))
+    σgrid = SigmaGrid(grid; Nσ = 6)
+    velocities = ice_sheet_velocities(grid, σgrid)
+    (; ησ, η̄H, η̄Hᶠᶠ, F₂, βᵘ, βᵛ, βᵇᵘ, βᵇᵛ) = ice_sheet_auxiliary_fields(grid, σgrid)
+
+    H = CenterField(grid)
+    set!(H, (x, y) -> 1000 + x / 1e2 + 100 * sin(2π * y / Ly))
+    fill_halo_regions!(H)
+    φᵘ, φᵛ = XFaceField(grid), YFaceField(grid)
+    set!(φᵘ, 1)
+    set!(φᵛ, 1)
+
+    Az = (Lx / 8) * (Ly / 6)
+    τ = VelocityVector(grid)
+    set!(τ.u, (x, y) -> τ₀ * Az * sin(π * x / Lx) * (1 + sin(2π * y / Ly) / 5))
+    set!(τ.v, (x, y) -> τ₀ * Az * cos(π * x / Lx) / 5)
+
+    rheology = GlenFlowLaw(grid; rate_factor = (x, y) -> 1e-21 * (1 + cos(2π * y / Ly) / 5), strain_rate_regularization = 1e-16)
+    friction = WeertmanFriction(grid; coefficient = (x, y) -> 1e6 * (1 + x / Lx))
+
+    solver = VelocityConjugateGradientSolver(ssa_operator!, grid; iteration_control = Convergence(; reltol = 1e-14, maxiter = 10_000))
+    picard = PicardIteration(grid; iteration_control = FixedIterations(3))
+
+    return (velocities, picard, solver, τ, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, nothing, βᵇᵘ, βᵇᵛ)
 end
 
 function centred_difference(cost, field, index, h)
@@ -150,6 +201,29 @@ end
             fd = centred_difference(cost, field, index, big"1e-15")
             ad = shadow[index..., 1]
             @info "∂J/∂$name" index ad fd
+            @test abs(ad - fd) < 1e-6 * abs(fd)
+        end
+    end
+
+    @testset "DIVA Picard iterations through update_diva_coefficients! and solve!" begin
+        problem = diva_problem()
+        velocities, picard, solver, τ = problem[1:4]
+        rheology, friction = problem[12:13]
+        shadows = map(Enzyme.make_zero, problem)
+        arguments = map(problem, shadows) do value, shadow
+            value isa Union{Nothing, PicardIteration, VelocityConjugateGradientSolver} ? Const(value) : Duplicated(value, shadow)
+        end
+        autodiff(set_runtime_activity(Reverse), diva_velocity_cost, Active, arguments...)
+
+        cost() = diva_velocity_cost(problem...)
+        dA, dC = shadows[12].rate_factor, shadows[13].coefficient
+        for (name, field, shadow, index) in (("A", rheology.rate_factor, dA, (3, 2)),
+                                             ("A", rheology.rate_factor, dA, (6, 5)),
+                                             ("C", friction.coefficient, dC, (4, 3)),
+                                             ("C", friction.coefficient, dC, (7, 6)))
+            fd = centred_difference(cost, field, index, 1e-4 * field[index..., 1])
+            ad = shadow[index..., 1]
+            @info "∂J/∂$name through DIVA" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
         end
     end
