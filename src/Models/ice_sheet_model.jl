@@ -6,7 +6,7 @@ fixed σ column for the vertical velocity structure.
 
 $(TYPEDFIELDS)
 """
-struct IceSheetModel{TS, Arch, G, SG, C, PC, SB, R, F, GR, TH, U, GE, B, A, M, AU, VS} <: AbstractModel{TS, Arch}
+struct IceSheetModel{TS, Arch, G, SG, C, PC, SB, R, F, GR, TH, U, GE, B, A, M, AU, VS, AD} <: AbstractModel{TS, Arch}
     "architecture"
     architecture :: Arch
     "horizontal grid (Flat in z)"
@@ -43,6 +43,8 @@ struct IceSheetModel{TS, Arch, G, SG, C, PC, SB, R, F, GR, TH, U, GE, B, A, M, A
     velocity_solver :: VS
     "time stepper"
     timestepper :: TS
+    "advection scheme for the ice thickness"
+    advection :: AD
 end
 
 """
@@ -50,7 +52,9 @@ $(TYPEDSIGNATURES)
 
 Build an `IceSheetModel` on the horizontal `grid` (z must be `Flat`). With a `rheology` the
 velocities are solved by a `StressBalanceSolver` in `update_state!`; pass `velocity_solver = nothing`
-to keep them fixed.
+to keep them fixed. The thickness is transported by the depth-averaged velocity with `advection`,
+first-order upwind by default; `WENO(order = 5, bounds = (0.0, Inf))` is a positivity-limited alternative
+that needs a horizontal halo of at least 4.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -77,6 +81,7 @@ function IceSheetModel(grid;
                        surface_mass_balance = 0,
                        basal_melt_rate = 0,
                        velocity_solver = default_velocity_solver(grid, rheology),
+                       advection = UpwindBiased(order = 1),
                        timestepper = :SplitRungeKutta3)
 
     σgrid = SigmaGrid(grid; Nσ, bed_refinement)
@@ -89,8 +94,19 @@ function IceSheetModel(grid;
     basal_melt_rate = parameter_field(grid, basal_melt_rate)
 
     timestepper = TimeStepper(timestepper, grid, (; H = geometry.H))
+    check_advection_halo(advection, grid)
+    advection = materialize_advection(advection, grid)
 
     return IceSheetModel(architecture(grid), grid, σgrid, clock, constants, stress_balance, rheology, friction,
                          grounding, thermodynamics, velocities, geometry, bed, surface_mass_balance,
-                         basal_melt_rate, auxiliary, velocity_solver, timestepper)
+                         basal_melt_rate, auxiliary, velocity_solver, timestepper, advection)
+end
+
+check_advection_halo(advection, grid) = nothing
+
+# The limiter is also computed in the first halo layer, so its stencil reaches one cell further.
+function check_advection_halo(advection::BoundsPreservingWENO{N}, grid) where N
+    Hx, Hy, _ = halo_size(grid)
+    min(Hx, Hy) > N || throw(ArgumentError("bounded WENO(order = $(2N - 1)) needs a horizontal halo of at least $(N + 1), got ($Hx, $Hy)"))
+    return nothing
 end

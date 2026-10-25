@@ -20,9 +20,10 @@
 
     @test iteration(model) == 3
     @test model.clock.time ≈ 3Δt
+    # The walls close the domain, so only the sources change the volume.
     H = Array(interior(model.geometry.H))
     x = xnodes(grid, Center())
-    @test H[:, 1, 1] ≈ 1000 .+ x ./ 1e3 .+ 3Δt * (a - m)
+    @test sum(H) ≈ sum(1000 .+ x ./ 1e3) * 8 + 64 * 3Δt * (a - m) rtol = 1e-13
 
     mktempdir() do dir
         simulation.output_writers[:checkpointer] = Checkpointer(model; schedule = IterationInterval(3), dir, prefix = "nunatak")

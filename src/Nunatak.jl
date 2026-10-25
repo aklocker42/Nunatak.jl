@@ -18,7 +18,8 @@ using LinearAlgebra: LinearAlgebra
 
 using Oceananigans
 using Oceananigans: AbstractModel
-using Oceananigans.Fields: interior
+using Oceananigans.Advection: div_Uc, UpwindBiased, BoundsPreservingWENO, materialize_advection, update_bounds_preserving_limiter!
+using Oceananigans.Fields: interior, ZeroField
 using Oceananigans.Grids: AbstractGrid, RectilinearGrid, Flat, Bounded, topology, halo_size, znode,
                           cpu_face_constructor_x, cpu_face_constructor_y, pop_flat_elements, peripheral_node
 using Oceananigans.Operators: δxᶠᶜᶜ, δyᶠᶜᶜ, δxᶜᶠᶜ, δyᶜᶠᶜ, ∂xᶜᶜᶜ, ∂yᶜᶜᶜ, ∂xᶠᶠᶜ, ∂yᶠᶠᶜ, ∂xᶠᶜᶜ, ∂yᶜᶠᶜ,
@@ -27,6 +28,7 @@ using Oceananigans.Operators: δxᶠᶜᶜ, δyᶠᶜᶜ, δxᶜᶠᶜ, δyᶜ�
 using Oceananigans.TimeSteppers: TimeStepper, Clock, SplitRungeKuttaTimeStepper
 using Oceananigans.Utils: launch!, prettysummary
 
+import Oceananigans.Advection: cell_advection_timescale
 import Oceananigans: fields, prognostic_fields, initialize!, prognostic_state, restore_prognostic_state!
 import Oceananigans.Architectures: architecture
 import Oceananigans.BoundaryConditions: fill_halo_regions!

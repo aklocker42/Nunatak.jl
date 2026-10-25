@@ -137,6 +137,7 @@ function Base.show(io::IO, model::ISM)
     print(io, "├── friction: ", summary(model.friction), '\n')
     print(io, "├── grounding: ", summary(model.grounding), '\n')
     print(io, "├── velocity_solver: ", summary(model.velocity_solver), '\n')
+    print(io, "├── advection: ", summary(model.advection), '\n')
     print(io, "└── timestepper: ", summary(model.timestepper))
     return nothing
 end

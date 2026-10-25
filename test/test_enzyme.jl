@@ -1,5 +1,6 @@
 using Enzyme
 using Nunatak: ice_sheet_velocities, ice_sheet_auxiliary_fields, update_diva_coefficients!, compute_velocity_profile!
+using Oceananigans.Advection: cell_advection_timescale
 
 function sum_of_squares(f)
     Nx, Ny, _ = size(f)
@@ -84,6 +85,14 @@ function diva_problem(; Lx = 8e4, Ly = 6e4, τ₀ = 1e4)
     picard = PicardIteration(grid; iteration_control = FixedIterations(3))
 
     return (velocities, picard, solver, τ, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, nothing, βᵇᵘ, βᵇᵛ)
+end
+
+function thickness_cost(model, H₀, Δt, Nt)
+    parent(model.geometry.H) .= parent(H₀)
+    for _ in 1:Nt
+        time_step!(model, Δt)
+    end
+    return sum_of_squares(model.geometry.H)
 end
 
 function centred_difference(cost, field, index, h)
@@ -224,6 +233,32 @@ end
             fd = centred_difference(cost, field, index, 1e-4 * field[index..., 1])
             ad = shadow[index..., 1]
             @info "∂J/∂$name through DIVA" index ad fd
+            @test abs(ad - fd) < 1e-6 * abs(fd)
+        end
+    end
+
+    @testset "Thickness transport through time_step!" begin
+        L = 16e3
+        transport_grid = RectilinearGrid(arch; size = (16, 4), x = (0, L), y = (0, 4e3), topology = (Bounded, Periodic, Flat))
+        model = IceSheetModel(transport_grid; velocity_solver = nothing, surface_mass_balance = 1e-8,
+                              basal_melt_rate = (x, y) -> 1e-9 * x / L)
+        set!(model; H = (x, y) -> 100 + 50 * exp(-((x - L / 4) / 2e3)^2), u = (x, y) -> 1e-6 * sin(π * x / L))
+        H₀ = deepcopy(model.geometry.H)
+        Δt = 0.5 * cell_advection_timescale(model)
+        Nt = 8
+
+        dmodel = Enzyme.make_zero(model)
+        autodiff(set_runtime_activity(Reverse), thickness_cost, Active,
+                 Duplicated(model, dmodel), Const(H₀), Const(Δt), Const(Nt))
+
+        cost() = thickness_cost(model, H₀, Δt, Nt)
+        for (name, field, shadow, index) in (("a", model.surface_mass_balance, dmodel.surface_mass_balance, (5, 2)),
+                                             ("m", model.basal_melt_rate, dmodel.basal_melt_rate, (9, 3)),
+                                             ("u", model.velocities.u, dmodel.velocities.u, (6, 1)),
+                                             ("u", model.velocities.u, dmodel.velocities.u, (11, 4)))
+            fd = centred_difference(cost, field, index, 1e-4 * abs(field[index..., 1]))
+            ad = shadow[index..., 1]
+            @info "∂J/∂$name through $Nt time steps" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
         end
     end
