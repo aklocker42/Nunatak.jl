@@ -5,7 +5,8 @@ export IceSheetModel
 export DepthIntegrated, DIVAShear
 export GlenFlowLaw
 export WeertmanFriction, RegularizedCoulombFriction
-export SubgridGroundedFraction
+export SubgridGroundedFraction, IceSheetConstants
+export StressBalanceSolver
 export VelocityVector, VelocityConjugateGradientSolver, JacobiPreconditioner, StressBalanceDiagonalPreconditioner
 export Convergence, FixedIterations, PicardIteration
 export solve!, adjoint_solve!, precondition!, picard_solve!
@@ -45,12 +46,14 @@ include("StressBalances/driving_stress.jl")
 include("Rheologies/glen_flow_law.jl")
 include("Frictions/frictions.jl")
 include("StressBalances/stress_balance_coefficients.jl")
+include("Models/ice_sheet_constants.jl")
 include("Groundings/subgrid_grounded_fraction.jl")
 include("Solvers/iteration_controls.jl")
 include("Solvers/velocity_vector.jl")
 include("Solvers/conjugate_gradient.jl")
 include("StressBalances/diagonal_preconditioner.jl")
 include("Solvers/picard.jl")
+include("StressBalances/stress_balance_solver.jl")
 include("Models/ice_sheet_fields.jl")
 include("Models/ice_sheet_model.jl")
 include("Models/ice_sheet_model_methods.jl")

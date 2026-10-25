@@ -3,7 +3,7 @@ $(TYPEDEF)
 
 Jacobi preconditioner for `ssa_operator!` that evaluates the operator diagonal from the
 current coefficients at each application, so it stays consistent through Picard iterations
-without storage. Wall rows have unit diagonal.
+without storage. Wall rows, and rows with neither viscosity nor drag (ice-free cells), have unit diagonal.
 """
 struct StressBalanceDiagonalPreconditioner end
 
@@ -29,14 +29,14 @@ end
     d = @inbounds Azᶠᶜᶜ(i, j, k, grid) * βᵘ[i, j, k] +
         x_normal_diagonal(i, j, k, grid, η̄H) + x_normal_diagonal(i-1, j, k, grid, η̄H) +
         x_shear_diagonal(i, j, k, grid, η̄Hᶠᶠ) + x_shear_diagonal(i, j+1, k, grid, η̄Hᶠᶠ)
-    return ifelse(peripheral_node(i, j, k, grid, Face(), Center(), Center()), one(grid), d)
+    return ifelse(peripheral_node(i, j, k, grid, Face(), Center(), Center()) | iszero(d), one(grid), d)
 end
 
 @inline function y_diagonal(i, j, k, grid, η̄H, η̄Hᶠᶠ, βᵛ)
     d = @inbounds Azᶜᶠᶜ(i, j, k, grid) * βᵛ[i, j, k] +
         y_normal_diagonal(i, j, k, grid, η̄H) + y_normal_diagonal(i, j-1, k, grid, η̄H) +
         y_shear_diagonal(i, j, k, grid, η̄Hᶠᶠ) + y_shear_diagonal(i+1, j, k, grid, η̄Hᶠᶠ)
-    return ifelse(peripheral_node(i, j, k, grid, Center(), Face(), Center()), one(grid), d)
+    return ifelse(peripheral_node(i, j, k, grid, Center(), Face(), Center()) | iszero(d), one(grid), d)
 end
 
 @kernel function _x_diagonal_precondition!(zu, ru, η̄H, η̄Hᶠᶠ, βᵘ, grid)

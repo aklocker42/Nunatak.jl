@@ -6,7 +6,7 @@ fixed σ column for the vertical velocity structure.
 
 $(TYPEDFIELDS)
 """
-struct IceSheetModel{TS, Arch, G, SG, C, SB, R, F, GR, TH, U, GE, B, A, M, AU, VS} <: AbstractModel{TS, Arch}
+struct IceSheetModel{TS, Arch, G, SG, C, PC, SB, R, F, GR, TH, U, GE, B, A, M, AU, VS} <: AbstractModel{TS, Arch}
     "architecture"
     architecture :: Arch
     "horizontal grid (Flat in z)"
@@ -15,6 +15,8 @@ struct IceSheetModel{TS, Arch, G, SG, C, SB, R, F, GR, TH, U, GE, B, A, M, AU, V
     σgrid :: SG
     "clock"
     clock :: C
+    "`IceSheetConstants`"
+    constants :: PC
     "`DepthIntegrated` stress balance"
     stress_balance :: SB
     "rheology, e.g. `GlenFlowLaw`"
@@ -37,7 +39,7 @@ struct IceSheetModel{TS, Arch, G, SG, C, SB, R, F, GR, TH, U, GE, B, A, M, AU, V
     basal_melt_rate :: M
     "stress-balance diagnostics"
     auxiliary :: AU
-    "velocity solver"
+    "`StressBalanceSolver`, or `nothing` to keep the velocities fixed"
     velocity_solver :: VS
     "time stepper"
     timestepper :: TS
@@ -46,7 +48,9 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Build an `IceSheetModel` on the horizontal `grid` (z must be `Flat`).
+Build an `IceSheetModel` on the horizontal `grid` (z must be `Flat`). With a `rheology` the
+velocities are solved by a `StressBalanceSolver` in `update_state!`; pass `velocity_solver = nothing`
+to keep them fixed.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -63,6 +67,7 @@ function IceSheetModel(grid;
                        Nσ = 10,
                        bed_refinement = 2,
                        clock = Clock(grid),
+                       constants = IceSheetConstants(grid),
                        stress_balance = DepthIntegrated(),
                        rheology = nothing,
                        friction = nothing,
@@ -71,7 +76,7 @@ function IceSheetModel(grid;
                        bed = 0,
                        surface_mass_balance = 0,
                        basal_melt_rate = 0,
-                       velocity_solver = nothing,
+                       velocity_solver = default_velocity_solver(grid, rheology),
                        timestepper = :SplitRungeKutta3)
 
     σgrid = SigmaGrid(grid; Nσ, bed_refinement)
@@ -85,7 +90,7 @@ function IceSheetModel(grid;
 
     timestepper = TimeStepper(timestepper, grid, (; H = geometry.H))
 
-    return IceSheetModel(architecture(grid), grid, σgrid, clock, stress_balance, rheology, friction,
+    return IceSheetModel(architecture(grid), grid, σgrid, clock, constants, stress_balance, rheology, friction,
                          grounding, thermodynamics, velocities, geometry, bed, surface_mass_balance,
                          basal_melt_rate, auxiliary, velocity_solver, timestepper)
 end

@@ -3,11 +3,11 @@ const ISM = IceSheetModel
 """
 $(TYPEDSIGNATURES)
 
-Set the ice thickness `H`, surface elevation `s` and depth-averaged velocities `u`, `v`.
+Set the ice thickness `H` and the depth-averaged velocities `u`, `v`, then update the state.
+Given velocities are the initial guess of the stress-balance solve.
 """
-function set!(model::ISM; H = nothing, s = nothing, u = nothing, v = nothing)
+function set!(model::ISM; H = nothing, u = nothing, v = nothing)
     set_if_given!(model.geometry.H, H)
-    set_if_given!(model.geometry.s, s)
     set_if_given!(model.velocities.u, u)
     set_if_given!(model.velocities.v, v)
     update_state!(model)
@@ -32,10 +32,62 @@ fields(model::ISM) = (; u = model.velocities.u, v = model.velocities.v, model.ge
 
 prognostic_fields(model::ISM) = (; H = model.geometry.H)
 
+"""
+$(TYPEDSIGNATURES)
+
+Diagnose the geometry (`s`, `φ`, `φᵘ`, `φᵛ`, `N`) from the thickness and bed, then solve the
+stress balance for the velocities.
+"""
 function update_state!(model::ISM, callbacks = [])
     fill_halo_regions!(model.geometry.H, model.clock, fields(model))
+    update_geometry!(model.geometry, model.grounding, model.bed, model.constants)
+    update_velocities!(model, model.velocity_solver)
     fill_halo_regions!((model.velocities.u, model.velocities.v), model.clock, fields(model))
     return nothing
+end
+
+function update_geometry!(geometry, grounding, b, constants)
+    (; H, s, φ, φᵘ, φᵛ, N) = geometry
+    compute_surface_elevation!(s, grounding, H, b, constants)
+    compute_grounded_fractions!(φ, φᵘ, φᵛ, grounding, H, b, constants)
+    compute_effective_pressure!(N, H, b, constants)
+    fill_halo_regions!((s, N))
+    return nothing
+end
+
+update_velocities!(model, ::Nothing) = nothing
+update_velocities!(model, solver::StressBalanceSolver) = update_velocities!(model, solver, model.stress_balance)
+
+function update_velocities!(model, solver::StressBalanceSolver, ::SSA)
+    (; H, s, φᵘ, φᵛ, N) = model.geometry
+    (; ησ, η̄H, η̄Hᶠᶠ, F₂, βᵘ, βᵛ, τᵘ, τᵛ) = model.auxiliary
+    constants = model.constants
+    τ = VelocityVector(τᵘ, τᵛ)
+    x = VelocityVector(model.velocities.u, model.velocities.v)
+    compute_driving_stress!(τ, H, s, constants.ice_density, constants.gravitational_acceleration)
+    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, model.rheology, model.friction, φᵘ, φᵛ, N)
+    solver.iteration = picard_solve!(x, solver.picard, solver.linear_solver, update_stress_balance_coefficients!, τ, coefficients...)
+    extend_depth_average!(model.velocities)
+    return nothing
+end
+
+update_velocities!(model, solver::StressBalanceSolver, ::DIVA) =
+    throw(ArgumentError("the DIVA velocity solve is not implemented yet; use DepthIntegrated() (SSA)"))
+
+# Under SSA the velocity is uniform in the column.
+function extend_depth_average!(velocities)
+    (; u, v, uᵇ, vᵇ, uσ, vσ) = velocities
+    parent(uᵇ) .= parent(u)
+    parent(vᵇ) .= parent(v)
+    σgrid = uσ.grid
+    launch!(architecture(σgrid), σgrid, size(uσ), _extend_depth_average!, uσ, u)
+    launch!(architecture(σgrid), σgrid, size(vσ), _extend_depth_average!, vσ, v)
+    return nothing
+end
+
+@kernel function _extend_depth_average!(uσ, u)
+    i, j, k = @index(Global, NTuple)
+    @inbounds uσ[i, j, k] = u[i, j, 1]
 end
 
 function prognostic_state(model::ISM)
@@ -66,11 +118,13 @@ end
 function Base.show(io::IO, model::ISM)
     print(io, summary(model), '\n')
     print(io, "├── grid: ", summary(model.grid), '\n')
+    print(io, "├── constants: ", summary(model.constants), '\n')
     print(io, "├── σgrid: ", size(model.σgrid, 3), " σ levels", '\n')
     print(io, "├── stress_balance: ", summary(model.stress_balance), '\n')
     print(io, "├── rheology: ", summary(model.rheology), '\n')
     print(io, "├── friction: ", summary(model.friction), '\n')
     print(io, "├── grounding: ", summary(model.grounding), '\n')
+    print(io, "├── velocity_solver: ", summary(model.velocity_solver), '\n')
     print(io, "└── timestepper: ", summary(model.timestepper))
     return nothing
 end

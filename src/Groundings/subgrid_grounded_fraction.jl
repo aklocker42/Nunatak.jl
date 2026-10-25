@@ -1,43 +1,16 @@
 """
 $(TYPEDEF)
 
-Sub-grid grounded fraction from the flotation function `f = H + ρ_w b / ρ_i` (sea level at `z = 0`),
+Sub-grid grounded fraction from the flotation function `f = H + ρw b / ρᵢ` (sea level at `z = 0`),
 interpolated linearly between cell centres, so `φ ∈ [0, 1]` moves continuously as the grounding
 line crosses a cell. At a velocity point `φᵘ`, `φᵛ` is the grounded part of the segment joining the
 two neighbouring centres; at a centre `φ` is the grounded part of the cell.
-Friction is scaled by the face fractions `φᵘ`, `φᵛ` and melt by `1 - φ`.
-
-$(TYPEDFIELDS)
+Friction is scaled by the face fractions `φᵘ`, `φᵛ` and melt by `1 - φ`. The densities come from
+`IceSheetConstants`.
 """
-struct SubgridGroundedFraction{FT}
-    "ice density `ρ_i` (kg m⁻³)"
-    ice_density :: FT
-    "ocean density `ρ_w` (kg m⁻³)"
-    ocean_density :: FT
-end
+struct SubgridGroundedFraction end
 
-"""
-$(TYPEDSIGNATURES)
-
-Build a `SubgridGroundedFraction` with the floating-point type of `grid`. The default densities are those of MISMIP+.
-
-```jldoctest
-julia> using Oceananigans, Nunatak
-
-julia> grid = RectilinearGrid(size = (4, 4), x = (0, 1), y = (0, 1), topology = (Bounded, Bounded, Flat));
-
-julia> grounding = SubgridGroundedFraction(grid);
-
-julia> grounding.ocean_density / grounding.ice_density
-1.1198257080610021
-```
-"""
-function SubgridGroundedFraction(grid::AbstractGrid; ice_density = 918, ocean_density = 1028)
-    FT = eltype(grid)
-    return SubgridGroundedFraction(convert(FT, ice_density), convert(FT, ocean_density))
-end
-
-Base.summary(g::SubgridGroundedFraction) = string("SubgridGroundedFraction(ρᵢ = ", g.ice_density, ", ρw = ", g.ocean_density, ")")
+Base.summary(::SubgridGroundedFraction) = "SubgridGroundedFraction"
 
 @inline flotation(i, j, k, grid, H, b, ρw_ρᵢ) = @inbounds H[i, j, k] + ρw_ρᵢ * b[i, j, k]
 
@@ -87,7 +60,8 @@ end
 $(TYPEDSIGNATURES)
 
 Compute the grounded fraction `φ` at cell centres and `φᵘ`, `φᵛ` at the velocity points from the
-thickness `H` and bed `b`. `H` and `b` need filled halos.
+thickness `H` and bed `b`. `H` and `b` need filled halos. Without a grounding treatment
+(`nothing`) all ice is grounded.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -104,7 +78,9 @@ julia> set!(H, 100); set!(b, (x, y) -> -100 * (x - 0.75)); fill_halo_regions!((H
 
 julia> φ, φᵘ, φᵛ = CenterField(grid), XFaceField(grid), YFaceField(grid);
 
-julia> compute_grounded_fractions!(φ, φᵘ, φᵛ, SubgridGroundedFraction(grid; ice_density = 1, ocean_density = 1), H, b)
+julia> constants = IceSheetConstants(grid; ice_density = 1, ocean_density = 1);
+
+julia> compute_grounded_fractions!(φ, φᵘ, φᵛ, SubgridGroundedFraction(), H, b, constants)
 
 julia> collect(interior(φ, :, 1, 1))
 4-element Vector{Float64}:
@@ -114,13 +90,20 @@ julia> collect(interior(φ, :, 1, 1))
  0.0
 ```
 """
-function compute_grounded_fractions!(φ, φᵘ, φᵛ, grounding::SubgridGroundedFraction, H, b)
+function compute_grounded_fractions!(φ, φᵘ, φᵛ, ::SubgridGroundedFraction, H, b, constants)
     grid = H.grid
     arch = architecture(grid)
-    ρw_ρᵢ = grounding.ocean_density / grounding.ice_density
+    ρw_ρᵢ = constants.ocean_density / constants.ice_density
     launch!(arch, grid, size(φ),  _compute_grounded_fraction!,   φ,  H, b, ρw_ρᵢ, grid)
     launch!(arch, grid, size(φᵘ), _compute_x_grounded_fraction!, φᵘ, H, b, ρw_ρᵢ, grid)
     launch!(arch, grid, size(φᵛ), _compute_y_grounded_fraction!, φᵛ, H, b, ρw_ρᵢ, grid)
+    return nothing
+end
+
+function compute_grounded_fractions!(φ, φᵘ, φᵛ, ::Nothing, args...)
+    fill!(φ, 1)
+    fill!(φᵘ, 1)
+    fill!(φᵛ, 1)
     return nothing
 end
 
@@ -157,7 +140,7 @@ julia> H, b, N = CenterField(grid), CenterField(grid), CenterField(grid);
 
 julia> set!(H, 10); set!(b, (x, y) -> x < 1 ? 5 : -5);
 
-julia> compute_effective_pressure!(N, SubgridGroundedFraction(grid; ice_density = 1, ocean_density = 1), H, b, 1)
+julia> compute_effective_pressure!(N, H, b, IceSheetConstants(grid; ice_density = 1, ocean_density = 1, gravitational_acceleration = 1))
 
 julia> collect(interior(N, :, 1, 1))
 2-element Vector{Float64}:
@@ -165,11 +148,10 @@ julia> collect(interior(N, :, 1, 1))
   5.0
 ```
 """
-function compute_effective_pressure!(N, grounding::SubgridGroundedFraction, H, b, gravitational_acceleration)
+function compute_effective_pressure!(N, H, b, constants)
     grid = H.grid
-    FT = eltype(grid)
-    ρᵢg = convert(FT, grounding.ice_density * gravitational_acceleration)
-    ρwg = convert(FT, grounding.ocean_density * gravitational_acceleration)
+    ρᵢg = constants.ice_density * constants.gravitational_acceleration
+    ρwg = constants.ocean_density * constants.gravitational_acceleration
     launch!(architecture(grid), grid, size(N), _compute_effective_pressure!, N, H, b, ρᵢg, ρwg, grid)
     return nothing
 end
@@ -177,4 +159,53 @@ end
 @kernel function _compute_effective_pressure!(N, H, b, ρᵢg, ρwg, grid)
     i, j, k = @index(Global, NTuple)
     @inbounds N[i, j, k] = max(ρᵢg * H[i, j, k] + ρwg * min(b[i, j, k], zero(grid)), zero(grid))
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+Compute the surface elevation `s = max(b + H, (1 - ρᵢ / ρw) H)`: on the bed where the ice is
+grounded and in hydrostatic balance with the ocean where it floats. Without a grounding
+treatment (`nothing`) the ice rests on the bed, `s = b + H`.
+
+```jldoctest
+julia> using Oceananigans, Nunatak
+
+julia> using Nunatak: compute_surface_elevation!
+
+julia> grid = RectilinearGrid(size = (2, 1), x = (0, 2), y = (0, 1), topology = (Bounded, Periodic, Flat));
+
+julia> H, b, s = CenterField(grid), CenterField(grid), CenterField(grid);
+
+julia> set!(H, 100); set!(b, (x, y) -> x < 1 ? -20 : -500);
+
+julia> compute_surface_elevation!(s, SubgridGroundedFraction(), H, b, IceSheetConstants(grid; ice_density = 1, ocean_density = 2))
+
+julia> collect(interior(s, :, 1, 1))
+2-element Vector{Float64}:
+ 80.0
+ 50.0
+```
+"""
+function compute_surface_elevation!(s, ::SubgridGroundedFraction, H, b, constants)
+    grid = H.grid
+    ρᵢ_ρw = constants.ice_density / constants.ocean_density
+    launch!(architecture(grid), grid, size(s), _compute_floating_surface_elevation!, s, H, b, ρᵢ_ρw, grid)
+    return nothing
+end
+
+function compute_surface_elevation!(s, ::Nothing, H, b, constants)
+    grid = H.grid
+    launch!(architecture(grid), grid, size(s), _compute_grounded_surface_elevation!, s, H, b)
+    return nothing
+end
+
+@kernel function _compute_floating_surface_elevation!(s, H, b, ρᵢ_ρw, grid)
+    i, j, k = @index(Global, NTuple)
+    @inbounds s[i, j, k] = max(b[i, j, k] + H[i, j, k], (1 - ρᵢ_ρw) * H[i, j, k])
+end
+
+@kernel function _compute_grounded_surface_elevation!(s, H, b)
+    i, j, k = @index(Global, NTuple)
+    @inbounds s[i, j, k] = b[i, j, k] + H[i, j, k]
 end
