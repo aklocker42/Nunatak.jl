@@ -29,7 +29,9 @@ DepthIntegrated(; shear = nothing) = DepthIntegrated(shear)
 $(TYPEDEF)
 
 Vertical-shear component of the depth-integrated viscous approximation (Goldberg 2011;
-Lipscomb et al. 2019). Switched on in phase 5; the layout it needs exists from phase 0.
+Lipscomb et al. 2019): the viscosity includes the vertical shear driven by the basal stress, the
+depth-averaged velocity feels the drag `β / (1 + β F₂)`, and the velocity profile is reconstructed from the
+shear integral after each solve.
 """
 struct DIVAShear end
 

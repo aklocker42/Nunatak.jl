@@ -23,7 +23,7 @@ using Oceananigans.Grids: AbstractGrid, RectilinearGrid, Flat, Bounded, topology
                           cpu_face_constructor_x, cpu_face_constructor_y, pop_flat_elements, peripheral_node
 using Oceananigans.Operators: δxᶠᶜᶜ, δyᶠᶜᶜ, δxᶜᶠᶜ, δyᶜᶠᶜ, ∂xᶜᶜᶜ, ∂yᶜᶜᶜ, ∂xᶠᶠᶜ, ∂yᶠᶠᶜ, ∂xᶠᶜᶜ, ∂yᶜᶠᶜ,
                               Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Azᶠᶜᶜ, Azᶜᶠᶜ,
-                              ℑxᶠᵃᵃ, ℑyᵃᶠᵃ, ℑxyᶜᶜᵃ, ℑxyᶠᶠᵃ, ℑxyᶠᶜᵃ, ℑxyᶜᶠᵃ
+                              ℑxᶠᵃᵃ, ℑyᵃᶠᵃ, ℑxᶜᵃᵃ, ℑyᵃᶜᵃ, ℑxyᶜᶜᵃ, ℑxyᶠᶠᵃ, ℑxyᶠᶜᵃ, ℑxyᶜᶠᵃ
 using Oceananigans.TimeSteppers: TimeStepper, Clock, SplitRungeKuttaTimeStepper
 using Oceananigans.Utils: launch!, prettysummary
 
@@ -46,6 +46,7 @@ include("StressBalances/driving_stress.jl")
 include("Rheologies/glen_flow_law.jl")
 include("Frictions/frictions.jl")
 include("StressBalances/stress_balance_coefficients.jl")
+include("StressBalances/diva.jl")
 include("Models/ice_sheet_constants.jl")
 include("Groundings/subgrid_grounded_fraction.jl")
 include("Solvers/iteration_controls.jl")

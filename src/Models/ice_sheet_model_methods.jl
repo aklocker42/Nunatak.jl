@@ -71,8 +71,20 @@ function update_velocities!(model, solver::StressBalanceSolver, ::SSA)
     return nothing
 end
 
-update_velocities!(model, solver::StressBalanceSolver, ::DIVA) =
-    throw(ArgumentError("the DIVA velocity solve is not implemented yet; use DepthIntegrated() (SSA)"))
+function update_velocities!(model, solver::StressBalanceSolver, ::DIVA)
+    (; H, s, φᵘ, φᵛ, N) = model.geometry
+    (; ησ, η̄H, η̄Hᶠᶠ, F₂, βᵘ, βᵛ, βᵇᵘ, βᵇᵛ, τᵘ, τᵛ) = model.auxiliary
+    (; uᵇ, vᵇ) = model.velocities
+    constants = model.constants
+    τ = VelocityVector(τᵘ, τᵛ)
+    x = VelocityVector(model.velocities.u, model.velocities.v)
+    compute_driving_stress!(τ, H, s, constants.ice_density, constants.gravitational_acceleration)
+    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, model.rheology, model.friction, φᵘ, φᵛ, N, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ)
+    solver.iteration = picard_solve!(x, solver.picard, solver.linear_solver, update_diva_coefficients!, τ, coefficients...)
+    fill_halo_regions!(ησ)
+    compute_velocity_profile!(model.velocities, βᵇᵘ, βᵇᵛ, F₂, ησ, H)
+    return nothing
+end
 
 # Under SSA the velocity is uniform in the column.
 function extend_depth_average!(velocities)

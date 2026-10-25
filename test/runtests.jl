@@ -18,6 +18,7 @@ include("toy_problems.jl")
     include("test_glen_viscosity.jl")
     include("test_friction.jl")
     include("test_grounding.jl")
+    include("test_diva.jl")
     include("test_model.jl")
 
     if arch isa CPU

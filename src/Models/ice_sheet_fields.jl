@@ -36,8 +36,9 @@ end
 $(TYPEDSIGNATURES)
 
 Diagnostic fields of the stress balance: viscosity on the σ grid `ησ`, depth-integrated
-viscosity `η̄H` at cell centres and `η̄Hᶠᶠ` at corners, the DIVA integral `F₂`, basal drag
-coefficients `βᵘ`, `βᵛ` and driving stresses `τᵘ`, `τᵛ`.
+viscosity `η̄H` at cell centres and `η̄Hᶠᶠ` at corners, the DIVA integral `F₂`, the drag
+coefficients `βᵘ`, `βᵛ` of the depth-averaged operator, the friction-law drag at the bed `βᵇᵘ`, `βᵇᵛ`
+(DIVA only; under SSA `βᵘ`, `βᵛ` are the bed drag) and driving stresses `τᵘ`, `τᵛ`.
 """
 function ice_sheet_auxiliary_fields(grid, σgrid)
     ησ    = Field{Center, Center, Center}(σgrid)
@@ -46,7 +47,9 @@ function ice_sheet_auxiliary_fields(grid, σgrid)
     F₂    = Field{Center, Center, Nothing}(grid)
     βᵘ    = Field{Face, Center, Nothing}(grid)
     βᵛ    = Field{Center, Face, Nothing}(grid)
+    βᵇᵘ   = Field{Face, Center, Nothing}(grid)
+    βᵇᵛ   = Field{Center, Face, Nothing}(grid)
     τᵘ    = Field{Face, Center, Nothing}(grid)
     τᵛ    = Field{Center, Face, Nothing}(grid)
-    return (; ησ, η̄H, η̄Hᶠᶠ, F₂, βᵘ, βᵛ, τᵘ, τᵛ)
+    return (; ησ, η̄H, η̄Hᶠᶠ, F₂, βᵘ, βᵛ, βᵇᵘ, βᵇᵛ, τᵘ, τᵛ)
 end

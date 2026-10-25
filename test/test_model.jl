@@ -41,12 +41,12 @@
     end
 end
 
-function model_ice_stream_error(Nx; L = 100e3, H₀ = 500, δ = 20, A = 1e-24)
+function model_ice_stream_error(Nx; L = 100e3, H₀ = 500, δ = 20, A = 1e-24, stress_balance = DepthIntegrated())
     grid = RectilinearGrid(arch; size = (Nx, 4), x = (0, L), y = (0, L / Nx * 4), topology = (Bounded, Bounded, Flat))
     constants = IceSheetConstants(grid; ice_density = 917)
     velocity_solver = StressBalanceSolver(grid; linear_iteration_control = Convergence(; reltol = 1e-12, maxiter = 10_000),
                                           picard_iteration_control = Convergence(; reltol = 1e-10, maxiter = 300))
-    model = IceSheetModel(grid; Nσ = 4, constants, velocity_solver, rheology = GlenFlowLaw(grid; rate_factor = A),
+    model = IceSheetModel(grid; Nσ = 4, constants, velocity_solver, stress_balance, rheology = GlenFlowLaw(grid; rate_factor = A),
                           bed = (x, y) -> δ * cos(π * x / L))
     set!(model; H = H₀)
 
@@ -81,6 +81,30 @@ end
     @test all(Array(interior(floating.geometry.N)) .== 0)
     @test isnothing(floating.velocity_solver)
 
-    diva = IceSheetModel(grid; rheology = GlenFlowLaw(grid; rate_factor = 1e-24), stress_balance = DepthIntegrated(shear = DIVAShear()))
-    @test_throws ArgumentError set!(diva; H = 100)
+end
+
+@testset "IceSheetModel DIVA update" begin
+    # Without basal drag there is no vertical shear, so DIVA reduces to SSA.
+    error, model = model_ice_stream_error(64; stress_balance = DepthIntegrated(shear = DIVAShear()))
+    @test error < 1e-3
+    (; u, uᵇ, uσ) = model.velocities
+    @test Array(interior(uᵇ)) == Array(interior(u))
+    @test all(k -> Array(interior(uσ, :, :, k)) ≈ Array(interior(u, :, :, 1)), 1:size(uσ, 3))
+
+    grid = RectilinearGrid(arch; size = (32, 4), x = (0, 1e5), y = (0, 1.25e4), topology = (Bounded, Bounded, Flat))
+    rheology = GlenFlowLaw(grid; rate_factor = 1e-24)
+    friction = WeertmanFriction(grid; coefficient = 1e12, exponent = 1)
+    ssa = IceSheetModel(grid; rheology, friction)
+    diva = IceSheetModel(grid; rheology, friction, stress_balance = DepthIntegrated(shear = DIVAShear()))
+    for model in (ssa, diva)
+        set!(model; H = (x, y) -> 1000 + x / 1e2)
+    end
+
+    ū, uᵇ = Array(interior(diva.velocities.u)), Array(interior(diva.velocities.uᵇ))
+    uσ = Array(interior(diva.velocities.uσ))
+    Δζ = reshape(diff(sigma_faces(size(uσ, 3))), 1, 1, :)
+    @test 0 < diva.velocity_solver.iteration < 100
+    @test maximum(abs, ū) > 2 * maximum(abs, Array(interior(ssa.velocities.u)))
+    @test all(abs.(uᵇ) .<= abs.(ū))
+    @test maximum(abs, sum(uσ .* Δζ, dims = 3) .- ū) < 1e-2 * maximum(abs, ū)
 end

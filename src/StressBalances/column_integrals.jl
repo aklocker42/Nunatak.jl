@@ -5,6 +5,28 @@
     return ((1 - ζ⁻)^3 - (1 - ζ⁺)^3) / 3
 end
 
+# Exact integral of (1 - ζ) from the bed to the centre of layer k, split into full layers below and the lower half of k.
+@inline function profile_weight(k′, k, σgrid)
+    ζ⁻ = znode(1, 1, k′, σgrid, Center(), Center(), Face())
+    ζ⁺ = ifelse(k′ == k, znode(1, 1, k, σgrid, Center(), Center(), Center()),
+                          znode(1, 1, k′+1, σgrid, Center(), Center(), Face()))
+    return ((1 - ζ⁻)^2 - (1 - ζ⁺)^2) / 2
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+Shear integral `F₁(ζₖ) = H ∫₀^ζₖ (1 - ζ′) / η dζ′` from the bed to the centre `ζₖ` of layer `k`,
+so the DIVA velocity there is `uᵇ (1 + βᵇ F₁)`. Depth-averaging `F₁` gives `F₂`.
+"""
+@inline function shear_integral(i, j, k, σgrid, ησ, H)
+    F = zero(eltype(ησ))
+    for k′ in 1:k
+        @inbounds F += profile_weight(k′, k, σgrid) / ησ[i, j, k′]
+    end
+    return @inbounds F * H[i, j, 1]
+end
+
 @inline layer_thickness(k, σgrid) = znode(1, 1, k+1, σgrid, Center(), Center(), Face()) -
                                     znode(1, 1, k,   σgrid, Center(), Center(), Face())
 
