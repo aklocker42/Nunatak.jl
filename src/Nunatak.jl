@@ -5,11 +5,12 @@ export IceSheetModel
 export DepthIntegrated, DIVAShear
 export GlenFlowLaw
 export WeertmanFriction, RegularizedCoulombFriction
-export SubgridGroundedFraction, IceSheetConstants
+export SubgridGroundedFraction, IceSheetConstants, SmoothIceMask
 export StressBalanceSolver
 export VelocityVector, VelocityConjugateGradientSolver, JacobiPreconditioner, StressBalanceDiagonalPreconditioner
 export Convergence, FixedIterations, PicardIteration
 export solve!, adjoint_solve!, precondition!, picard_solve!
+export checkpointed_gradient!
 
 using Adapt
 using DocStringExtensions
@@ -57,7 +58,9 @@ include("Solvers/conjugate_gradient.jl")
 include("StressBalances/diagonal_preconditioner.jl")
 include("Solvers/picard.jl")
 include("StressBalances/stress_balance_solver.jl")
+include("Models/smooth_ice_mask.jl")
 include("Models/ice_sheet_fields.jl")
+include("Models/checkpointed_gradient.jl")
 include("Models/ice_sheet_model.jl")
 include("Models/ice_sheet_model_methods.jl")
 include("Models/time_stepping.jl")

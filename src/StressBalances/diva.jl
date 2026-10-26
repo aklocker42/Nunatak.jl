@@ -58,7 +58,7 @@ diagnose the basal velocities `uᵇ`, `vᵇ` with the previous `βᵇ` and `F₂
 `βᵇᵘ`, `βᵇᵛ` at the bed, the viscosity `ησ` with vertical shear, its column integrals, and the
 effective drag `βᵘ`, `βᵛ` passed to `ssa_operator!`. The arguments before `βᵇᵘ` match the SSA update.
 """
-function update_diva_coefficients!(x, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, N, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ)
+function update_diva_coefficients!(x, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, N, μ, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ)
     grid = H.grid
     fill_halo_regions!(x)
     compute_basal_velocities!(uᵇ, vᵇ, x.u, x.v, βᵇᵘ, βᵇᵛ, F₂)
@@ -66,7 +66,7 @@ function update_diva_coefficients!(x, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F�
     compute_basal_drag!(βᵇᵘ, βᵇᵛ, friction, uᵇ, vᵇ, φᵘ, φᵛ, N)
     fill_halo_regions!((βᵇᵘ, βᵇᵛ))
     compute_viscosity!(ησ, rheology, x.u, x.v, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ)
-    compute_column_integrals!(η̄H, F₂, ησ, H)
+    compute_column_integrals!(η̄H, F₂, ησ, H, μ)
     fill_halo_regions!((η̄H, F₂))
     launch!(architecture(grid), grid, size(η̄Hᶠᶠ), _interpolate_to_corners!, η̄Hᶠᶠ, η̄H, grid)
     fill_halo_regions!(η̄Hᶠᶠ)

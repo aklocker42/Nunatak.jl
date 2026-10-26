@@ -73,6 +73,22 @@ end
         @test_throws ArgumentError IceSheetModel(small_halo; velocity_solver = nothing, advection = WENO(order = 5, bounds = (0.0, Inf)))
     end
 
+    @testset "Clipped thickness closes the volume budget" begin
+        # Melt faster than the bump can supply, so the flanks empty and the clip adds ice back.
+        m = 1e-7
+        model = transport_model(; width = 4e3, basal_melt_rate = (x, y) -> ifelse(x > 24e3, m, zero(x)))
+        V₀ = volume(model)
+        Δt = 0.5 * cell_advection_timescale(model)
+        Nt = 32
+        run_steps!(model, Δt, Nt)
+        Az = model.grid.Δxᶜᵃᵃ * model.grid.Δyᵃᶜᵃ
+        melted = Nt * Δt * sum(Array(interior(model.basal_melt_rate))) * Az
+        clipped = sum(Array(interior(model.geometry.clipped_thickness))) * Az
+        @test clipped > 0
+        @test minimum(Array(interior(model.geometry.H))) == 0
+        @test abs(volume(model) - (V₀ - melted + clipped)) < 1e-13 * (V₀ + melted)
+    end
+
     @testset "TimeStepWizard follows the ice velocity" begin
         model = transport_model(; U = 2e-6)
         simulation = Simulation(model; Δt = 1.0, stop_iteration = 2)

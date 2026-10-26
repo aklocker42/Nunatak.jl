@@ -1,13 +1,14 @@
 module NunatakEnzymeExt
 
 using Nunatak
-using Nunatak: VelocityVector, VelocityConjugateGradientSolver, axpy!
+using Nunatak: VelocityVector, VelocityConjugateGradientSolver, axpy!, time_steps!
+using Nunatak.Oceananigans: prognostic_state, restore_prognostic_state!, time_step!
 using Nunatak.Oceananigans: Field
 using Nunatak.Oceananigans.BoundaryConditions: fill_halo_regions!
 using Enzyme
 using Enzyme.EnzymeRules
 
-import Nunatak: solve!
+import Nunatak: solve!, checkpointed_gradient!
 
 # Implicit adjoint of x = A(p)⁻¹ b: λ = A⁻ᵀ x̄, b̄ += λ, p̄ -= (∂(A x)/∂p)ᵀ λ.
 
@@ -78,5 +79,28 @@ end
 
 accumulate_right_hand_side_adjoint!(::Const, λ) = nothing
 accumulate_right_hand_side_adjoint!(b::Shadowed, λ) = axpy!(1, λ, shadow(b))
+
+# prognostic_state aliases the fields on the CPU, so checkpoints are copies.
+checkpoint(model) = deepcopy(prognostic_state(model))
+
+function checkpointed_gradient!(dmodel, cost, model, Δt, Nt; checkpoint_interval = ceil(Int, sqrt(Nt)))
+    checkpoints = map(1:checkpoint_interval:Nt) do n
+        state = checkpoint(model)
+        time_steps!(model, Δt, min(checkpoint_interval, Nt - n + 1))
+        return state
+    end
+    final_state = checkpoint(model)
+
+    _, J = autodiff(set_runtime_activity(ReverseWithPrimal), cost, Active, Duplicated(model, dmodel))
+
+    for (s, n) in Iterators.reverse(enumerate(1:checkpoint_interval:Nt))
+        restore_prognostic_state!(model, checkpoints[s])
+        autodiff(set_runtime_activity(Reverse), time_steps!, Const, Duplicated(model, dmodel),
+                 Const(Δt), Const(min(checkpoint_interval, Nt - n + 1)))
+    end
+
+    restore_prognostic_state!(model, final_state)
+    return J
+end
 
 end # module

@@ -52,7 +52,7 @@ function diva_velocity_cost(velocities, picard, solver, τ, η̄H, η̄Hᶠᶠ, 
         fill!(field, 0)
     end
     fill_halo_regions!((rheology.rate_factor, friction.coefficient))
-    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, N, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ)
+    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, N, nothing, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ)
     picard_solve!(VelocityVector(u, v), picard, solver, update_diva_coefficients!, τ, coefficients...)
     fill_halo_regions!(ησ)
     compute_velocity_profile!(velocities, βᵇᵘ, βᵇᵛ, F₂, ησ, H)
@@ -94,6 +94,8 @@ function thickness_cost(model, H₀, Δt, Nt)
     end
     return sum_of_squares(model.geometry.H)
 end
+
+thickness_sum_of_squares(model) = sum_of_squares(model.geometry.H)
 
 function centred_difference(cost, field, index, h)
     i, j = index
@@ -259,6 +261,23 @@ end
             fd = centred_difference(cost, field, index, 1e-4 * abs(field[index..., 1]))
             ad = shadow[index..., 1]
             @info "∂J/∂$name through $Nt time steps" index ad fd
+            @test abs(ad - fd) < 1e-6 * abs(fd)
+        end
+
+        # Segments of 3, 3 and 2 steps reproduce the gradient taped in one pass.
+        parent(model.geometry.H) .= parent(H₀)
+        dcheckpointed = Enzyme.make_zero(model)
+        J = checkpointed_gradient!(dcheckpointed, thickness_sum_of_squares, model, Δt, Nt; checkpoint_interval = 3)
+        @test J ≈ cost()
+        for name in (:surface_mass_balance, :basal_melt_rate)
+            @test parent(getproperty(dcheckpointed, name)) ≈ parent(getproperty(dmodel, name)) rtol = 1e-12
+        end
+        @test parent(dcheckpointed.velocities.u) ≈ parent(dmodel.velocities.u) rtol = 1e-12
+
+        for index in ((4, 2), (9, 3))
+            fd = centred_difference(cost, H₀, index, 1e-4 * H₀[index..., 1])
+            ad = dcheckpointed.geometry.H[index..., 1]
+            @info "∂J/∂H₀ through $Nt checkpointed time steps" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
         end
     end

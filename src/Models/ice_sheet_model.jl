@@ -6,7 +6,7 @@ fixed σ column for the vertical velocity structure.
 
 $(TYPEDFIELDS)
 """
-struct IceSheetModel{TS, Arch, G, SG, C, PC, SB, R, F, GR, TH, U, GE, B, A, M, AU, VS, AD} <: AbstractModel{TS, Arch}
+struct IceSheetModel{TS, Arch, G, SG, C, PC, SB, R, F, GR, MK, TH, U, GE, B, A, M, AU, VS, AD} <: AbstractModel{TS, Arch}
     "architecture"
     architecture :: Arch
     "horizontal grid (Flat in z)"
@@ -25,11 +25,13 @@ struct IceSheetModel{TS, Arch, G, SG, C, PC, SB, R, F, GR, TH, U, GE, B, A, M, A
     friction :: F
     "grounding-line treatment"
     grounding :: GR
+    "ice mask, e.g. `SmoothIceMask`"
+    masking :: MK
     "thermodynamics (reserved, `nothing` in phase 0)"
     thermodynamics :: TH
     "velocities `(u, v, uᵇ, vᵇ, uσ, vσ)`"
     velocities :: U
-    "geometry `(H, s, φ, φᵘ, φᵛ, N, ice_mask)`"
+    "geometry `(H, s, φ, φᵘ, φᵛ, N, ice_mask, clipped_thickness)`"
     geometry :: GE
     "bed elevation"
     bed :: B
@@ -54,7 +56,8 @@ Build an `IceSheetModel` on the horizontal `grid` (z must be `Flat`). With a `rh
 velocities are solved by a `StressBalanceSolver` in `update_state!`; pass `velocity_solver = nothing`
 to keep them fixed. The thickness is transported by the depth-averaged velocity with `advection`,
 first-order upwind by default; `WENO(order = 5, bounds = (0.0, Inf))` is a positivity-limited alternative
-that needs a horizontal halo of at least 4.
+that needs a horizontal halo of at least 4. Cells thinner than `masking.minimum_thickness` are
+ice free and drop out of the stress balance; see `SmoothIceMask`.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -76,6 +79,7 @@ function IceSheetModel(grid;
                        rheology = nothing,
                        friction = nothing,
                        grounding = nothing,
+                       masking = SmoothIceMask(grid),
                        thermodynamics = nothing,
                        bed = 0,
                        surface_mass_balance = 0,
@@ -98,7 +102,7 @@ function IceSheetModel(grid;
     advection = materialize_advection(advection, grid)
 
     return IceSheetModel(architecture(grid), grid, σgrid, clock, constants, stress_balance, rheology, friction,
-                         grounding, thermodynamics, velocities, geometry, bed, surface_mass_balance,
+                         grounding, masking, thermodynamics, velocities, geometry, bed, surface_mass_balance,
                          basal_melt_rate, auxiliary, velocity_solver, timestepper, advection)
 end
 

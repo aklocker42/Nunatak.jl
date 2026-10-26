@@ -18,7 +18,9 @@ can share the argument list.
 
 Velocities on `Bounded` walls are impenetrable: their rows are the identity and they are
 excluded from the strain rates, so the wall values of `p` do not matter. Tangential walls are
-free slip. The halos of `p`, `η̄H` and `η̄Hᶠᶠ` must be filled.
+free slip. Velocity points with no stiffness on either side (`η̄H = 0`, ice free) are treated the
+same way, so the operator stays symmetric as the ice extent changes.
+The halos of `p`, `η̄H` and `η̄Hᶠᶠ` must be filled.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -53,31 +55,31 @@ function ssa_operator!(q, p, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, args...)
     return nothing
 end
 
-@inline normal_stress_xx(i, j, k, grid, u, v, η̄H) = @inbounds 2 * η̄H[i, j, k] * (2 * strain_rate_xx(i, j, k, grid, u) + strain_rate_yy(i, j, k, grid, v))
-@inline normal_stress_yy(i, j, k, grid, u, v, η̄H) = @inbounds 2 * η̄H[i, j, k] * (2 * strain_rate_yy(i, j, k, grid, v) + strain_rate_xx(i, j, k, grid, u))
-@inline shear_stress(i, j, k, grid, u, v, η̄Hᶠᶠ)   = @inbounds 2 * η̄Hᶠᶠ[i, j, k] * strain_rate_xy(i, j, k, grid, u, v)
+@inline normal_stress_xx(i, j, k, grid, u, v, η̄H) = @inbounds 2 * η̄H[i, j, k] * (2 * strain_rate_xx(i, j, k, grid, u, η̄H) + strain_rate_yy(i, j, k, grid, v, η̄H))
+@inline normal_stress_yy(i, j, k, grid, u, v, η̄H) = @inbounds 2 * η̄H[i, j, k] * (2 * strain_rate_yy(i, j, k, grid, v, η̄H) + strain_rate_xx(i, j, k, grid, u, η̄H))
+@inline shear_stress(i, j, k, grid, u, v, η̄Hᶠᶠ, η̄H) = @inbounds 2 * η̄Hᶠᶠ[i, j, k] * strain_rate_xy(i, j, k, grid, u, v, η̄H)
 
 @inline Δy_normal_stress_xx(i, j, k, grid, u, v, η̄H) = Δyᶜᶜᶜ(i, j, k, grid) * normal_stress_xx(i, j, k, grid, u, v, η̄H)
 @inline Δx_normal_stress_yy(i, j, k, grid, u, v, η̄H) = Δxᶜᶜᶜ(i, j, k, grid) * normal_stress_yy(i, j, k, grid, u, v, η̄H)
-@inline Δx_shear_stress(i, j, k, grid, u, v, η̄Hᶠᶠ)   = Δxᶠᶠᶜ(i, j, k, grid) * shear_stress(i, j, k, grid, u, v, η̄Hᶠᶠ)
-@inline Δy_shear_stress(i, j, k, grid, u, v, η̄Hᶠᶠ)   = Δyᶠᶠᶜ(i, j, k, grid) * shear_stress(i, j, k, grid, u, v, η̄Hᶠᶠ)
+@inline Δx_shear_stress(i, j, k, grid, u, v, η̄Hᶠᶠ, η̄H) = Δxᶠᶠᶜ(i, j, k, grid) * shear_stress(i, j, k, grid, u, v, η̄Hᶠᶠ, η̄H)
+@inline Δy_shear_stress(i, j, k, grid, u, v, η̄Hᶠᶠ, η̄H) = Δyᶠᶠᶜ(i, j, k, grid) * shear_stress(i, j, k, grid, u, v, η̄Hᶠᶠ, η̄H)
 
 @inline function x_stress_balance(i, j, k, grid, u, v, η̄H, η̄Hᶠᶠ, βᵘ)
     divergence = δxᶠᶜᶜ(i, j, k, grid, Δy_normal_stress_xx, u, v, η̄H) +
-                 δyᶠᶜᶜ(i, j, k, grid, Δx_shear_stress, u, v, η̄Hᶠᶠ)
+                 δyᶠᶜᶜ(i, j, k, grid, Δx_shear_stress, u, v, η̄Hᶠᶠ, η̄H)
     return @inbounds Azᶠᶜᶜ(i, j, k, grid) * βᵘ[i, j, k] * u[i, j, k] - divergence
 end
 
 @inline function y_stress_balance(i, j, k, grid, u, v, η̄H, η̄Hᶠᶠ, βᵛ)
     divergence = δyᶜᶠᶜ(i, j, k, grid, Δx_normal_stress_yy, u, v, η̄H) +
-                 δxᶜᶠᶜ(i, j, k, grid, Δy_shear_stress, u, v, η̄Hᶠᶠ)
+                 δxᶜᶠᶜ(i, j, k, grid, Δy_shear_stress, u, v, η̄Hᶠᶠ, η̄H)
     return @inbounds Azᶜᶠᶜ(i, j, k, grid) * βᵛ[i, j, k] * v[i, j, k] - divergence
 end
 
 @kernel function _ssa_operator!(qu, qv, u, v, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, grid)
     i, j, k = @index(Global, NTuple)
-    wallᵘ = peripheral_node(i, j, k, grid, Face(), Center(), Center())
-    wallᵛ = peripheral_node(i, j, k, grid, Center(), Face(), Center())
+    wallᵘ = inactiveᶠᶜᶜ(i, j, k, grid, η̄H)
+    wallᵛ = inactiveᶜᶠᶜ(i, j, k, grid, η̄H)
     @inbounds begin
         qu[i, j, k] = ifelse(wallᵘ, u[i, j, k], x_stress_balance(i, j, k, grid, u, v, η̄H, η̄Hᶠᶠ, βᵘ))
         qv[i, j, k] = ifelse(wallᵛ, v[i, j, k], y_stress_balance(i, j, k, grid, u, v, η̄H, η̄Hᶠᶠ, βᵛ))

@@ -18,8 +18,9 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Ice thickness `H`, surface elevation `s`, grounded fraction `φ`, effective pressure `N` and ice mask at
-`(Center, Center)`, and the grounded fractions `φᵘ`, `φᵛ` at the velocity points.
+Ice thickness `H`, surface elevation `s`, grounded fraction `φ`, effective pressure `N`, ice mask and
+`clipped_thickness` at `(Center, Center)`, and the grounded fractions `φᵘ`, `φᵛ` at the velocity points.
+`clipped_thickness` accumulates the thickness added by clipping `H` at zero, so the volume budget closes.
 """
 function ice_sheet_geometry(grid)
     H = Field{Center, Center, Nothing}(grid)
@@ -29,7 +30,8 @@ function ice_sheet_geometry(grid)
     φᵛ = Field{Center, Face, Nothing}(grid)
     N = Field{Center, Center, Nothing}(grid)
     ice_mask = Field{Center, Center, Nothing}(grid)
-    return (; H, s, φ, φᵘ, φᵛ, N, ice_mask)
+    clipped_thickness = Field{Center, Center, Nothing}(grid)
+    return (; H, s, φ, φᵘ, φᵛ, N, ice_mask, clipped_thickness)
 end
 
 """
