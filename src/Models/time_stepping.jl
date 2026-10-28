@@ -25,20 +25,28 @@ end
 $(TYPEDSIGNATURES)
 
 Compute `G = a − m − ∇⋅(ūH)` with the model's advection scheme and the depth-averaged velocities.
+With a grounding-line treatment the melt acts on the floating part only, `(1 - φ) m`.
 """
 function compute_thickness_tendency!(G, model::IceSheetModel)
     grid = model.grid
     update_bounds_preserving_limiter!(model.advection, grid, model.geometry.H)
     launch!(architecture(grid), grid, :xy, _compute_thickness_tendency!, G, grid, model.advection,
-            advecting_velocities(model), model.geometry.H, model.surface_mass_balance, model.basal_melt_rate)
+            advecting_velocities(model), model.geometry.H, model.surface_mass_balance, model.basal_melt_rate,
+            floating_melt_fraction(model.grounding, model.geometry))
     return nothing
 end
 
 advecting_velocities(model::IceSheetModel) = (u = model.velocities.u, v = model.velocities.v, w = ZeroField())
 
-@kernel function _compute_thickness_tendency!(G, grid, advection, U, H, a, m)
+floating_melt_fraction(::Nothing, geometry) = nothing
+floating_melt_fraction(grounding, geometry) = geometry.φ
+
+@inline basal_melt(i, j, m, ::Nothing) = @inbounds m[i, j, 1]
+@inline basal_melt(i, j, m, φ) = @inbounds (1 - φ[i, j, 1]) * m[i, j, 1]
+
+@kernel function _compute_thickness_tendency!(G, grid, advection, U, H, a, m, φ)
     i, j = @index(Global, NTuple)
-    @inbounds G[i, j, 1] = a[i, j, 1] - m[i, j, 1] - div_Uc(i, j, 1, grid, advection, U, H)
+    @inbounds G[i, j, 1] = a[i, j, 1] - basal_melt(i, j, m, φ) - div_Uc(i, j, 1, grid, advection, U, H)
 end
 
 @kernel function _thickness_substep!(H, Hᶜ, H⁻, G, Δτ, final_stage)

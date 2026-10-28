@@ -22,7 +22,7 @@ function ice_stream_error(Nx; L = 100e3, H₀ = 500, δ = 20, ρ = 917, g = 9.81
     fill_halo_regions!((H, s))
 
     τ = VelocityVector(grid)
-    compute_driving_stress!(τ, H, s, ρ, g)
+    compute_driving_stress!(τ, H, s, ρ, ρ, g)
 
     rheology = GlenFlowLaw(grid; rate_factor = A)
     η̄H, η̄Hᶠᶠ, F₂ = Field{Center, Center, Nothing}(grid), Field{Face, Face, Nothing}(grid), Field{Center, Center, Nothing}(grid)
@@ -60,7 +60,7 @@ end
     set!(s, (x, y) -> 2x + 3y)
     fill_halo_regions!((H, s))
     τ = VelocityVector(grid)
-    compute_driving_stress!(τ, H, s, 2, 5)
+    compute_driving_stress!(τ, H, s, 2, 2, 5)
     Az = 0.5 * 0.2
     xᶠ = 0.5:0.5:2.5
     yᶠ = 0.2:0.2:0.8

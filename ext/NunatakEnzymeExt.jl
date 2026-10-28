@@ -20,6 +20,10 @@ shadow(a::MixedDuplicated) = a.dval[]
 duplicated(value, ::Const) = Const(value)
 duplicated(value, a::Shadowed) = Duplicated(value, shadow(a))
 
+# Inside a differentiated model the solver is shadowed too; its workspace carries no gradient.
+const Solver = Union{Const{<:VelocityConjugateGradientSolver}, Duplicated{<:VelocityConjugateGradientSolver},
+                     MixedDuplicated{<:VelocityConjugateGradientSolver}}
+
 function copy_vector(x::VelocityVector)
     y = similar(x)
     parent(y.u) .= parent(x.u)
@@ -38,7 +42,7 @@ copy_argument(a) = a
 
 function EnzymeRules.augmented_primal(config, func::Const{typeof(solve!)}, ::Type{RT},
                                       x::Shadowed,
-                                      solver::Const{<:VelocityConjugateGradientSolver},
+                                      solver::Solver,
                                       b, args...) where RT
 
     solve!(x.val, solver.val, b.val, map(a -> a.val, args)...)
@@ -53,7 +57,7 @@ end
 
 function EnzymeRules.reverse(config, func::Const{typeof(solve!)}, ::Type{RT}, tape,
                              x::Shadowed,
-                             solver::Const{<:VelocityConjugateGradientSolver},
+                             solver::Solver,
                              b, args...) where RT
 
     x̄ = shadow(x)

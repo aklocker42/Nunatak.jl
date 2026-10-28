@@ -89,6 +89,19 @@ end
         @test abs(volume(model) - (V₀ - melted + clipped)) < 1e-13 * (V₀ + melted)
     end
 
+    @testset "Basal melt acts on the floating part only" begin
+        Nx, L, H₀, m, Δt = 8, 8e3, 500, 1e-6, 1e3
+        grid = RectilinearGrid(arch; size = (Nx, 1), x = (0, L), y = (0, L / Nx), topology = (Bounded, Periodic, Flat))
+        model = IceSheetModel(grid; velocity_solver = nothing, grounding = SubgridGroundedFraction(),
+                              bed = (x, y) -> ifelse(x < L / 2, -100, -2000), basal_melt_rate = m)
+        set!(model; H = H₀)
+        φ = Array(interior(model.geometry.φ, :, 1, 1))
+        time_step!(model, Δt)
+        ΔH = Array(interior(model.geometry.H, :, 1, 1)) .- H₀
+        @test φ[1] == 1 && φ[end] == 0 && 0 < φ[Nx ÷ 2] < 1
+        @test ΔH ≈ -Δt * m .* (1 .- φ) rtol = 1e-6
+    end
+
     @testset "TimeStepWizard follows the ice velocity" begin
         model = transport_model(; U = 2e-6)
         simulation = Simulation(model; Δt = 1.0, stop_iteration = 2)

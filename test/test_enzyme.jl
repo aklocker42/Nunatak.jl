@@ -97,6 +97,14 @@ end
 
 thickness_sum_of_squares(model) = sum_of_squares(model.geometry.H)
 
+function ice_cap_velocity_cost(model, H₀)
+    parent(model.geometry.H) .= parent(H₀)
+    fill!(model.velocities.u, 0)
+    fill!(model.velocities.v, 0)
+    Oceananigans.TimeSteppers.update_state!(model)
+    return sum_of_squares(model.velocities.u) + sum_of_squares(model.velocities.v)
+end
+
 function centred_difference(cost, field, index, h)
     i, j = index
     field[i, j, 1] += h
@@ -279,6 +287,49 @@ end
             ad = dcheckpointed.geometry.H[index..., 1]
             @info "∂J/∂H₀ through $Nt checkpointed time steps" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
+        end
+    end
+
+    @testset "Ice cap velocities through the smooth ice mask" begin
+        model = ice_cap_model(; Nx = 10, masking_kw = (; minimum_thickness = 10, transition_thickness = 400),
+                              linear_iteration_control = Convergence(; reltol = 1e-14, maxiter = 10_000),
+                              picard_iteration_control = FixedIterations(4))
+        H₀ = deepcopy(model.geometry.H)
+        dH₀ = Enzyme.make_zero(H₀)
+        autodiff(set_runtime_activity(Reverse), ice_cap_velocity_cost, Active,
+                 Duplicated(model, Enzyme.make_zero(model)), Duplicated(H₀, dH₀))
+
+        cost() = ice_cap_velocity_cost(model, H₀)
+        for index in ((4, 3), (5, 5))
+            fd = centred_difference(cost, H₀, index, 1e-4 * H₀[index..., 1])
+            ad = dH₀[index..., 1]
+            @info "∂J/∂H through the ice mask" index ad fd
+            @test abs(ad - fd) < 1e-5 * abs(fd)
+        end
+    end
+
+    @testset "Marine ice velocities across the grounding line" begin
+        marine_grid = RectilinearGrid(arch; size = (16, 4), x = (0, 64e3), y = (0, 16e3), topology = (Bounded, Bounded, Flat))
+        velocity_solver = StressBalanceSolver(marine_grid; linear_iteration_control = Convergence(; reltol = 1e-14, maxiter = 10_000),
+                                              picard_iteration_control = FixedIterations(4))
+        model = IceSheetModel(marine_grid; velocity_solver, rheology = GlenFlowLaw(marine_grid; rate_factor = 1e-24),
+                              friction = WeertmanFriction(marine_grid; coefficient = 3e6),
+                              grounding = SubgridGroundedFraction(), bed = (x, y) -> -200 - 1e-2 * x)
+        set!(model; H = (x, y) -> ifelse(x < 56e3, 1000 - 1e-2 * x - 100 * ((y - 8e3) / 8e3)^2, 0))
+        φ = Array(interior(model.geometry.φ))
+        @test 0 < φ[9, 2, 1] < 1 && 0 < φ[10, 2, 1] < 1
+
+        H₀ = deepcopy(model.geometry.H)
+        dH₀ = Enzyme.make_zero(H₀)
+        autodiff(set_runtime_activity(Reverse), ice_cap_velocity_cost, Active,
+                 Duplicated(model, Enzyme.make_zero(model)), Duplicated(H₀, dH₀))
+
+        cost() = ice_cap_velocity_cost(model, H₀)
+        for index in ((8, 2), (9, 3), (10, 2), (12, 2))
+            fd = centred_difference(cost, H₀, index, 1e-4 * H₀[index..., 1])
+            ad = dH₀[index..., 1]
+            @info "∂J/∂H across the grounding line" index φ[index..., 1] ad fd
+            @test abs(ad - fd) < 1e-4 * abs(fd)
         end
     end
 end

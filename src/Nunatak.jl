@@ -24,7 +24,7 @@ using Oceananigans.Fields: interior, ZeroField
 using Oceananigans.Grids: AbstractGrid, RectilinearGrid, Flat, Bounded, topology, halo_size, znode,
                           cpu_face_constructor_x, cpu_face_constructor_y, pop_flat_elements, peripheral_node
 using Oceananigans.Operators: δxᶠᶜᶜ, δyᶠᶜᶜ, δxᶜᶠᶜ, δyᶜᶠᶜ, ∂xᶜᶜᶜ, ∂yᶜᶜᶜ, ∂xᶠᶠᶜ, ∂yᶠᶠᶜ, ∂xᶠᶜᶜ, ∂yᶜᶠᶜ,
-                              Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Azᶠᶜᶜ, Azᶜᶠᶜ,
+                              Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Azᶠᶜᶜ, Azᶜᶠᶜ,
                               ℑxᶠᵃᵃ, ℑyᵃᶠᵃ, ℑxᶜᵃᵃ, ℑyᵃᶜᵃ, ℑxyᶜᶜᵃ, ℑxyᶠᶠᵃ, ℑxyᶠᶜᵃ, ℑxyᶜᶠᵃ
 using Oceananigans.TimeSteppers: TimeStepper, Clock, SplitRungeKuttaTimeStepper
 using Oceananigans.Utils: launch!, prettysummary
