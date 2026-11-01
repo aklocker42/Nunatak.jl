@@ -109,3 +109,32 @@ end
     @test all(abs.(uᵇ) .<= abs.(ū))
     @test maximum(abs, sum(uσ .* Δζ, dims = 3) .- ū) < 1e-2 * maximum(abs, ū)
 end
+
+@testset "Scheduled velocity solves" begin
+    grid = RectilinearGrid(arch; size = (32, 4), halo = (4, 4), x = (0, 1e5), y = (0, 1.25e4), topology = (Bounded, Bounded, Flat))
+    rheology = GlenFlowLaw(grid; rate_factor = 1e-24)
+    friction = WeertmanFriction(grid; coefficient = 1e12, exponent = 1)
+    velocity_solver = StressBalanceSolver(grid; schedule = IterationInterval(3))
+    model = IceSheetModel(grid; rheology, friction, velocity_solver, surface_mass_balance = 1e-7)
+    set!(model; H = (x, y) -> 1000 + x / 1e2)
+    velocity() = Array(interior(model.velocities.u))
+    thickness() = Array(interior(model.geometry.H))
+
+    u₀ = velocity()
+    time_step!(model, 3e7)
+    u₁, H₁ = velocity(), thickness()
+    @test u₁ != u₀
+
+    time_step!(model, 3e7)
+    time_step!(model, 3e7)
+    @test velocity() == u₁
+    @test thickness() != H₁
+
+    time_step!(model, 3e7)
+    @test velocity() != u₁
+
+    u₄ = velocity()
+    time_step!(model, 3e7)
+    set!(model; H = (x, y) -> 1200 + x / 1e2)
+    @test velocity() != u₄
+end

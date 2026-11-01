@@ -10,7 +10,9 @@ function set!(model::ISM; H = nothing, u = nothing, v = nothing)
     set_if_given!(model.geometry.H, H)
     set_if_given!(model.velocities.u, u)
     set_if_given!(model.velocities.v, v)
-    update_state!(model)
+    update_geometry_state!(model)
+    update_velocities!(model, model.velocity_solver)
+    fill_velocity_halos!(model)
     return nothing
 end
 
@@ -36,13 +38,27 @@ prognostic_fields(model::ISM) = (; H = model.geometry.H)
 $(TYPEDSIGNATURES)
 
 Diagnose the geometry (`s`, `φ`, `φᵘ`, `φᵛ`, `N`, `ice_mask`) from the thickness and bed, then solve the
-stress balance for the velocities.
+stress balance for the velocities if the velocity solver's `schedule` actuates.
 """
 function update_state!(model::ISM, callbacks = [])
+    update_geometry_state!(model)
+    maybe_update_velocities!(model, model.velocity_solver)
+    fill_velocity_halos!(model)
+    return nothing
+end
+
+function update_geometry_state!(model::ISM)
     fill_halo_regions!(model.geometry.H, model.clock, fields(model))
     update_geometry!(model.geometry, model.grounding, model.masking, model.bed, model.constants)
-    update_velocities!(model, model.velocity_solver)
-    fill_halo_regions!((model.velocities.u, model.velocities.v), model.clock, fields(model))
+    return nothing
+end
+
+fill_velocity_halos!(model::ISM) = fill_halo_regions!((model.velocities.u, model.velocities.v), model.clock, fields(model))
+
+maybe_update_velocities!(model, ::Nothing) = nothing
+
+function maybe_update_velocities!(model, solver::StressBalanceSolver)
+    solver.schedule(model) && update_velocities!(model, solver)
     return nothing
 end
 
