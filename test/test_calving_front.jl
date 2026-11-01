@@ -22,7 +22,7 @@ using Nunatak: compute_driving_stress!
 
     @testset "Confined floating shelf matches the analytic spreading rate" begin
         L, x_front, H₀, A, Nx = 64e3, 40e3, 500, 1e-24, 32
-        grid = RectilinearGrid(arch; size = (Nx, 4), x = (0, L), y = (0, 4L / Nx), topology = (Bounded, Bounded, Flat))
+        grid = RectilinearGrid(arch; size = (Nx, 4), halo = (4, 4), x = (0, L), y = (0, 4L / Nx), topology = (Bounded, Bounded, Flat))
         velocity_solver = StressBalanceSolver(grid; linear_iteration_control = Convergence(; reltol = 1e-12, maxiter = 10_000),
                                               picard_iteration_control = Convergence(; reltol = 1e-10, maxiter = 500))
         model = IceSheetModel(grid; velocity_solver, rheology = GlenFlowLaw(grid; rate_factor = A),
@@ -44,7 +44,7 @@ using Nunatak: compute_driving_stress!
         L, x_front, H₀, A, n = 256e3, 192e3, 1e3, 1e-25, 3
         q = H₀ * 1e-5
         errors = map((64, 128)) do Nx
-            grid = RectilinearGrid(arch; size = (Nx, 4), x = (0, L), y = (0, 4L / Nx), topology = (Bounded, Bounded, Flat))
+            grid = RectilinearGrid(arch; size = (Nx, 4), halo = (4, 4), x = (0, L), y = (0, 4L / Nx), topology = (Bounded, Bounded, Flat))
             velocity_solver = StressBalanceSolver(grid; linear_iteration_control = Convergence(; reltol = 1e-12, maxiter = 20_000),
                                                   picard_iteration_control = Convergence(; reltol = 1e-11, maxiter = 500))
             model = IceSheetModel(grid; velocity_solver, rheology = GlenFlowLaw(grid; rate_factor = A),

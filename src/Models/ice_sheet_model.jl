@@ -55,14 +55,14 @@ $(TYPEDSIGNATURES)
 Build an `IceSheetModel` on the horizontal `grid` (z must be `Flat`). With a `rheology` the
 velocities are solved by a `StressBalanceSolver` in `update_state!`; pass `velocity_solver = nothing`
 to keep them fixed. The thickness is transported by the depth-averaged velocity with `advection`,
-first-order upwind by default; `WENO(order = 5, bounds = (0.0, Inf))` is a positivity-limited alternative
-that needs a horizontal halo of at least 4. Cells thinner than `masking.minimum_thickness` are
+fifth-order WENO limited to `0 ≤ H ≤ 100 km` by default, which needs a horizontal halo of at least 4;
+`UpwindBiased(order = 1)` works with any halo. Cells thinner than `masking.minimum_thickness` are
 ice free and drop out of the stress balance; see `SmoothIceMask`.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
 
-julia> grid = RectilinearGrid(size = (8, 8), x = (0, 1e5), y = (0, 1e5), topology = (Bounded, Bounded, Flat));
+julia> grid = RectilinearGrid(size = (8, 8), halo = (4, 4), x = (0, 1e5), y = (0, 1e5), topology = (Bounded, Bounded, Flat));
 
 julia> model = IceSheetModel(grid; rheology = GlenFlowLaw(grid; rate_factor = 1e-24));
 
@@ -85,7 +85,7 @@ function IceSheetModel(grid;
                        surface_mass_balance = 0,
                        basal_melt_rate = 0,
                        velocity_solver = default_velocity_solver(grid, rheology),
-                       advection = UpwindBiased(order = 1),
+                       advection = default_thickness_advection(grid),
                        timestepper = :SplitRungeKutta3)
 
     σgrid = SigmaGrid(grid; Nσ, bed_refinement)
@@ -105,6 +105,9 @@ function IceSheetModel(grid;
                          grounding, masking, thermodynamics, velocities, geometry, bed, surface_mass_balance,
                          basal_melt_rate, auxiliary, velocity_solver, timestepper, advection)
 end
+
+# The finite upper bound keeps the limiter's reverse-mode derivative finite; Inf gives 0 * Inf = NaN.
+default_thickness_advection(grid) = WENO(eltype(grid); order = 5, bounds = (zero(grid), convert(eltype(grid), 1e5)))
 
 check_advection_halo(advection, grid) = nothing
 

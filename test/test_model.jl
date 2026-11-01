@@ -1,5 +1,5 @@
 @testset "IceSheetModel" begin
-    grid = RectilinearGrid(arch; size = (8, 8), x = (0, 1e5), y = (0, 1e5), topology = (Bounded, Bounded, Flat))
+    grid = RectilinearGrid(arch; size = (8, 8), halo = (4, 4), x = (0, 1e5), y = (0, 1e5), topology = (Bounded, Bounded, Flat))
     a = 1e-8
     m = 2e-9
 
@@ -43,7 +43,7 @@
 end
 
 function model_ice_stream_error(Nx; L = 100e3, H₀ = 500, δ = 20, A = 1e-24, stress_balance = DepthIntegrated())
-    grid = RectilinearGrid(arch; size = (Nx, 4), x = (0, L), y = (0, L / Nx * 4), topology = (Bounded, Bounded, Flat))
+    grid = RectilinearGrid(arch; size = (Nx, 4), halo = (4, 4), x = (0, L), y = (0, L / Nx * 4), topology = (Bounded, Bounded, Flat))
     constants = IceSheetConstants(grid; ice_density = 917)
     velocity_solver = StressBalanceSolver(grid; linear_iteration_control = Convergence(; reltol = 1e-12, maxiter = 10_000),
                                           picard_iteration_control = Convergence(; reltol = 1e-10, maxiter = 300))
@@ -73,7 +73,7 @@ end
     @test Array(interior(uᵇ)) == Array(interior(u))
     @test all(k -> Array(interior(uσ, :, :, k)) == Array(interior(u, :, :, 1)), 1:size(uσ, 3))
 
-    grid = RectilinearGrid(arch; size = (4, 4), x = (0, 1e4), y = (0, 1e4), topology = (Bounded, Bounded, Flat))
+    grid = RectilinearGrid(arch; size = (4, 4), halo = (4, 4), x = (0, 1e4), y = (0, 1e4), topology = (Bounded, Bounded, Flat))
     floating = IceSheetModel(grid; grounding = SubgridGroundedFraction(), bed = -2000)
     set!(floating; H = 100)
     ρᵢ_ρw = floating.constants.ice_density / floating.constants.ocean_density
@@ -92,7 +92,7 @@ end
     @test Array(interior(uᵇ)) == Array(interior(u))
     @test all(k -> Array(interior(uσ, :, :, k)) ≈ Array(interior(u, :, :, 1)), 1:size(uσ, 3))
 
-    grid = RectilinearGrid(arch; size = (32, 4), x = (0, 1e5), y = (0, 1.25e4), topology = (Bounded, Bounded, Flat))
+    grid = RectilinearGrid(arch; size = (32, 4), halo = (4, 4), x = (0, 1e5), y = (0, 1.25e4), topology = (Bounded, Bounded, Flat))
     rheology = GlenFlowLaw(grid; rate_factor = 1e-24)
     friction = WeertmanFriction(grid; coefficient = 1e12, exponent = 1)
     ssa = IceSheetModel(grid; rheology, friction)

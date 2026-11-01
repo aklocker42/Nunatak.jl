@@ -4,7 +4,7 @@ using Nunatak: ice_mask_value
 function ice_cap_model(; L = 200e3, Nx = 20, R = 60e3, H₀ = 1000, H_edge = 0, masking_kw = (;),
                        linear_iteration_control = Convergence(; reltol = 1e-10, maxiter = 10_000),
                        picard_iteration_control = Convergence(; reltol = 1e-8, maxiter = 200))
-    grid = RectilinearGrid(arch; size = (Nx, Nx), x = (0, L), y = (0, L), topology = (Bounded, Bounded, Flat))
+    grid = RectilinearGrid(arch; size = (Nx, Nx), halo = (4, 4), x = (0, L), y = (0, L), topology = (Bounded, Bounded, Flat))
     velocity_solver = StressBalanceSolver(grid; linear_iteration_control, picard_iteration_control)
     model = IceSheetModel(grid; velocity_solver, rheology = GlenFlowLaw(grid; rate_factor = 1e-24),
                           friction = WeertmanFriction(grid; coefficient = 3e6),

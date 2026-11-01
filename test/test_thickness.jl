@@ -70,7 +70,7 @@ end
         @test drift[2] > 1e-9
 
         small_halo = RectilinearGrid(arch; size = (8, 8), x = (0, 1), y = (0, 1), topology = (Bounded, Periodic, Flat))
-        @test_throws ArgumentError IceSheetModel(small_halo; velocity_solver = nothing, advection = WENO(order = 5, bounds = (0.0, Inf)))
+        @test_throws ArgumentError IceSheetModel(small_halo; velocity_solver = nothing)
     end
 
     @testset "Clipped thickness closes the volume budget" begin
@@ -92,7 +92,7 @@ end
     @testset "Basal melt acts on the floating part only" begin
         Nx, L, H₀, m, Δt = 8, 8e3, 500, 1e-6, 1e3
         grid = RectilinearGrid(arch; size = (Nx, 1), x = (0, L), y = (0, L / Nx), topology = (Bounded, Periodic, Flat))
-        model = IceSheetModel(grid; velocity_solver = nothing, grounding = SubgridGroundedFraction(),
+        model = IceSheetModel(grid; velocity_solver = nothing, grounding = SubgridGroundedFraction(), advection = UpwindBiased(order = 1),
                               bed = (x, y) -> ifelse(x < L / 2, -100, -2000), basal_melt_rate = m)
         set!(model; H = H₀)
         φ = Array(interior(model.geometry.φ, :, 1, 1))

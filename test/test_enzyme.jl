@@ -249,7 +249,7 @@ end
 
     @testset "Thickness transport through time_step!" begin
         L = 16e3
-        transport_grid = RectilinearGrid(arch; size = (16, 4), x = (0, L), y = (0, 4e3), topology = (Bounded, Periodic, Flat))
+        transport_grid = RectilinearGrid(arch; size = (16, 4), halo = (4, 4), x = (0, L), y = (0, 4e3), topology = (Bounded, Periodic, Flat))
         model = IceSheetModel(transport_grid; velocity_solver = nothing, surface_mass_balance = 1e-8,
                               basal_melt_rate = (x, y) -> 1e-9 * x / L)
         set!(model; H = (x, y) -> 100 + 50 * exp(-((x - L / 4) / 2e3)^2), u = (x, y) -> 1e-6 * sin(π * x / L))
@@ -266,7 +266,7 @@ end
                                              ("m", model.basal_melt_rate, dmodel.basal_melt_rate, (9, 3)),
                                              ("u", model.velocities.u, dmodel.velocities.u, (6, 1)),
                                              ("u", model.velocities.u, dmodel.velocities.u, (11, 4)))
-            fd = centred_difference(cost, field, index, 1e-4 * abs(field[index..., 1]))
+            fd = centred_difference(cost, field, index, 1e-6 * abs(field[index..., 1]))
             ad = shadow[index..., 1]
             @info "∂J/∂$name through $Nt time steps" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
@@ -283,7 +283,7 @@ end
         @test parent(dcheckpointed.velocities.u) ≈ parent(dmodel.velocities.u) rtol = 1e-12
 
         for index in ((4, 2), (9, 3))
-            fd = centred_difference(cost, H₀, index, 1e-4 * H₀[index..., 1])
+            fd = centred_difference(cost, H₀, index, 1e-6 * H₀[index..., 1])
             ad = dcheckpointed.geometry.H[index..., 1]
             @info "∂J/∂H₀ through $Nt checkpointed time steps" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
@@ -309,7 +309,7 @@ end
     end
 
     @testset "Marine ice velocities across the grounding line" begin
-        marine_grid = RectilinearGrid(arch; size = (16, 4), x = (0, 64e3), y = (0, 16e3), topology = (Bounded, Bounded, Flat))
+        marine_grid = RectilinearGrid(arch; size = (16, 4), halo = (4, 4), x = (0, 64e3), y = (0, 16e3), topology = (Bounded, Bounded, Flat))
         velocity_solver = StressBalanceSolver(marine_grid; linear_iteration_control = Convergence(; reltol = 1e-14, maxiter = 10_000),
                                               picard_iteration_control = FixedIterations(4))
         model = IceSheetModel(marine_grid; velocity_solver, rheology = GlenFlowLaw(marine_grid; rate_factor = 1e-24),
