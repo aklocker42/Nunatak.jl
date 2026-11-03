@@ -97,6 +97,19 @@ end
 
 thickness_sum_of_squares(model) = sum_of_squares(model.geometry.H)
 
+function energy_cost(model, H₀, E₀, mᵍ₀, Δt, Nt)
+    (; E, Hw, mᵍ, Hⁿ) = model.thermodynamics.state
+    parent(model.geometry.H) .= parent(H₀)
+    parent(Hⁿ) .= parent(H₀)
+    parent(E) .= parent(E₀)
+    parent(mᵍ) .= parent(mᵍ₀)
+    fill!(Hw, 0)
+    for _ in 1:Nt
+        time_step!(model, Δt)
+    end
+    return sum_of_column_squares(E) / 1e8 + sum_of_squares(Hw) + sum_of_squares(model.geometry.H) / 1e6
+end
+
 function ice_cap_velocity_cost(model, H₀)
     parent(model.geometry.H) .= parent(H₀)
     fill!(model.velocities.u, 0)
@@ -330,6 +343,40 @@ end
             ad = dH₀[index..., 1]
             @info "∂J/∂H across the grounding line" index φ[index..., 1] ad fd
             @test abs(ad - fd) < 1e-4 * abs(fd)
+        end
+    end
+
+    @testset "Enthalpy, basal water and thickness through time_step!" begin
+        L = 16e3
+        energy_grid = RectilinearGrid(arch; size = (8, 2), halo = (4, 2), x = (0, L), y = (0, 4e3), topology = (Bounded, Periodic, Flat))
+        thermodynamics = EnthalpyThermodynamics(energy_grid; geothermal_flux = (x, y) -> 0.04 + 0.3 * x / L,
+                                                surface_temperature = (x, y) -> 250 + 5 * y / 4e3)
+        model = IceSheetModel(energy_grid; Nσ = 6, velocity_solver = nothing, thermodynamics, surface_mass_balance = 1e-8,
+                              advection = UpwindBiased(order = 1))
+        set!(model; H = (x, y) -> 600 + 100 * cos(π * x / L), u = (x, y) -> 3e-6 * sin(π * x / L),
+             T = (x, y, ζ) -> 250 + (20 + 6 * x / L) * (1 - ζ))
+        (; state) = model.thermodynamics
+        H₀, E₀, mᵍ₀ = deepcopy(model.geometry.H), deepcopy(state.E), deepcopy(state.mᵍ)
+        Δt = 3e8
+        Nt = 4
+        @test energy_cost(model, H₀, E₀, mᵍ₀, Δt, Nt) > 0
+        Hw = Array(interior(state.Hw))
+        @test any(iszero, Hw) && any(>(0), Hw)
+
+        dmodel = Enzyme.make_zero(model)
+        autodiff(set_runtime_activity(Reverse), energy_cost, Active, Duplicated(model, dmodel),
+                 Const(H₀), Const(E₀), Const(mᵍ₀), Const(Δt), Const(Nt))
+
+        cost() = energy_cost(model, H₀, E₀, mᵍ₀, Δt, Nt)
+        dthermodynamics = dmodel.thermodynamics
+        for (name, field, shadow, index) in (("G", model.thermodynamics.geothermal_flux, dthermodynamics.geothermal_flux, (2, 1)),
+                                             ("G", model.thermodynamics.geothermal_flux, dthermodynamics.geothermal_flux, (7, 2)),
+                                             ("Tₛ", model.thermodynamics.surface_temperature, dthermodynamics.surface_temperature, (4, 2)),
+                                             ("u", model.velocities.u, dmodel.velocities.u, (5, 1)))
+            fd = centred_difference(cost, field, index, 1e-6 * abs(field[index..., 1]))
+            ad = shadow[index..., 1]
+            @info "∂J/∂$name through $Nt energy steps" index ad fd
+            @test abs(ad - fd) < 1e-5 * abs(fd)
         end
     end
 end
