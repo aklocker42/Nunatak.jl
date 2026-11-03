@@ -24,15 +24,16 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Compute `G = a − m − ∇⋅(ūH)` with the model's advection scheme and the depth-averaged velocities.
-With a grounding-line treatment the melt acts on the floating part only, `(1 - φ) m`.
+Compute `G = a − m − mᵍ − ∇⋅(ūH)` with the model's advection scheme and the depth-averaged velocities.
+With a grounding-line treatment the melt acts on the floating part only, `(1 - φ) m`. The grounded melt `mᵍ`,
+the change of the basal water layer per unit time, comes from the thermodynamics when they are coupled.
 """
 function compute_thickness_tendency!(G, model::IceSheetModel)
     grid = model.grid
     update_bounds_preserving_limiter!(model.advection, grid, model.geometry.H)
     launch!(architecture(grid), grid, :xy, _compute_thickness_tendency!, G, grid, model.advection,
             advecting_velocities(model), model.geometry.H, model.surface_mass_balance, model.basal_melt_rate,
-            floating_melt_fraction(model.grounding, model.geometry))
+            floating_melt_fraction(model.grounding, model.geometry), coupled_grounded_melt(model.thermodynamics))
     return nothing
 end
 
@@ -44,9 +45,15 @@ floating_melt_fraction(grounding, geometry) = geometry.φ
 @inline basal_melt(i, j, m, ::Nothing) = @inbounds m[i, j, 1]
 @inline basal_melt(i, j, m, φ) = @inbounds (1 - φ[i, j, 1]) * m[i, j, 1]
 
-@kernel function _compute_thickness_tendency!(G, grid, advection, U, H, a, m, φ)
+coupled_grounded_melt(::Nothing) = nothing
+coupled_grounded_melt(thermodynamics) = thermodynamics.grounded_melt_coupling ? thermodynamics.state.mᵍ : nothing
+
+@inline grounded_melt(i, j, ::Nothing) = zero(i)
+@inline grounded_melt(i, j, mᵍ) = @inbounds mᵍ[i, j, 1]
+
+@kernel function _compute_thickness_tendency!(G, grid, advection, U, H, a, m, φ, mᵍ)
     i, j = @index(Global, NTuple)
-    @inbounds G[i, j, 1] = a[i, j, 1] - basal_melt(i, j, m, φ) - div_Uc(i, j, 1, grid, advection, U, H)
+    @inbounds G[i, j, 1] = a[i, j, 1] - basal_melt(i, j, m, φ) - grounded_melt(i, j, mᵍ) - div_Uc(i, j, 1, grid, advection, U, H)
 end
 
 @kernel function _thickness_substep!(H, Hᶜ, H⁻, G, Δτ, final_stage)

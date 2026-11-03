@@ -3,7 +3,8 @@ module Nunatak
 export SigmaGrid, sigma_faces
 export IceSheetModel
 export DepthIntegrated, DIVAShear
-export GlenFlowLaw
+export GlenFlowLaw, ArrheniusRateFactor
+export EnthalpyThermodynamics
 export WeertmanFriction, RegularizedCoulombFriction
 export SubgridGroundedFraction, IceSheetConstants, SmoothIceMask
 export StressBalanceSolver
@@ -23,8 +24,9 @@ using Oceananigans.Advection: div_Uc, UpwindBiased, BoundsPreservingWENO, materi
 using Oceananigans.Fields: interior, ZeroField
 using Oceananigans.Grids: AbstractGrid, RectilinearGrid, Flat, Bounded, topology, halo_size, znode,
                           cpu_face_constructor_x, cpu_face_constructor_y, pop_flat_elements, peripheral_node
+using Oceananigans.Solvers: BatchedTridiagonalSolver
 using Oceananigans.Operators: δxᶠᶜᶜ, δyᶠᶜᶜ, δxᶜᶠᶜ, δyᶜᶠᶜ, ∂xᶜᶜᶜ, ∂yᶜᶜᶜ, ∂xᶠᶠᶜ, ∂yᶠᶠᶜ, ∂xᶠᶜᶜ, ∂yᶜᶠᶜ,
-                              Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Azᶠᶜᶜ, Azᶜᶠᶜ,
+                              Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Azᶠᶜᶜ, Azᶜᶠᶜ, Azᶜᶜᶜ,
                               ℑxᶠᵃᵃ, ℑyᵃᶠᵃ, ℑxᶜᵃᵃ, ℑyᵃᶜᵃ, ℑxyᶜᶜᵃ, ℑxyᶠᶠᵃ, ℑxyᶠᶜᵃ, ℑxyᶜᶠᵃ
 using Oceananigans.TimeSteppers: TimeStepper, Clock, SplitRungeKuttaTimeStepper
 using Oceananigans.Utils: launch!, prettysummary
@@ -46,6 +48,7 @@ include("StressBalances/column_integrals.jl")
 include("StressBalances/strain_rates.jl")
 include("StressBalances/ssa_operator.jl")
 include("StressBalances/driving_stress.jl")
+include("Rheologies/arrhenius_rate_factor.jl")
 include("Rheologies/glen_flow_law.jl")
 include("Frictions/frictions.jl")
 include("StressBalances/stress_balance_coefficients.jl")
@@ -59,6 +62,11 @@ include("StressBalances/diagonal_preconditioner.jl")
 include("Solvers/picard.jl")
 include("StressBalances/stress_balance_solver.jl")
 include("Models/smooth_ice_mask.jl")
+include("Thermodynamics/enthalpy_thermodynamics.jl")
+include("Thermodynamics/enthalpy_conversions.jl")
+include("Thermodynamics/layer_transport.jl")
+include("Thermodynamics/strain_heating.jl")
+include("Thermodynamics/column_energy_solve.jl")
 include("Models/ice_sheet_fields.jl")
 include("Models/checkpointed_gradient.jl")
 include("Models/ice_sheet_model.jl")

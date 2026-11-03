@@ -4,13 +4,15 @@ const ISM = IceSheetModel
 $(TYPEDSIGNATURES)
 
 Set the ice thickness `H` and the depth-averaged velocities `u`, `v`, then update the state.
-Given velocities are the initial guess of the stress-balance solve.
+Given velocities are the initial guess of the stress-balance solve. With thermodynamics, `E` sets the
+enthalpy and `T` the temperature of cold ice, as functions of `(x, y, ζ)`, a number or a `Field`.
 """
-function set!(model::ISM; H = nothing, u = nothing, v = nothing)
+function set!(model::ISM; H = nothing, u = nothing, v = nothing, E = nothing, T = nothing)
     set_if_given!(model.geometry.H, H)
     set_if_given!(model.velocities.u, u)
     set_if_given!(model.velocities.v, v)
     update_geometry_state!(model)
+    set_thermal_state!(model, model.thermodynamics, E, T)
     update_velocities!(model, model.velocity_solver)
     fill_velocity_halos!(model)
     return nothing
@@ -18,6 +20,32 @@ end
 
 set_if_given!(field, ::Nothing) = nothing
 set_if_given!(field, value) = set!(field, value)
+
+set_thermal_state!(model, ::Nothing, ::Nothing, ::Nothing) = nothing
+
+function set_thermal_state!(model, thermodynamics, E, T)
+    (; state, parameters) = thermodynamics
+    σgrid = model.σgrid
+    set_if_given!(state.E, E)
+    set_enthalpy_from_temperature!(state.E, state.T, T, σgrid, model.geometry.H, parameters, model.constants)
+    parent(state.Hⁿ) .= parent(model.geometry.H)
+    update_thermal_diagnostics!(model, thermodynamics)
+    return nothing
+end
+
+set_enthalpy_from_temperature!(E, T, ::Nothing, σgrid, H, parameters, constants) = nothing
+
+function set_enthalpy_from_temperature!(E, T, value, σgrid, H, parameters, constants)
+    set!(T, value)
+    launch!(architecture(σgrid), σgrid, :xyz, _set_enthalpy_from_temperature!, E, T, σgrid, H, parameters, constants)
+    return nothing
+end
+
+@kernel function _set_enthalpy_from_temperature!(E, T, σgrid, H, parameters, constants)
+    i, j, k = @index(Global, NTuple)
+    p = layer_pressure(i, j, k, σgrid, H, constants)
+    @inbounds E[i, j, k] = enthalpy(T[i, j, k], zero(p), p, parameters)
+end
 
 set!(model::ISM, new_clock::Clock) = set!(model.clock, new_clock)
 
@@ -44,6 +72,7 @@ function update_state!(model::ISM, callbacks = [])
     update_geometry_state!(model)
     maybe_update_velocities!(model, model.velocity_solver)
     fill_velocity_halos!(model)
+    maybe_step_thermodynamics!(model, model.thermodynamics)
     return nothing
 end
 
@@ -123,6 +152,7 @@ function prognostic_state(model::ISM)
     return (clock = prognostic_state(model.clock),
             geometry = prognostic_state(model.geometry),
             velocities = prognostic_state(model.velocities),
+            thermodynamics = prognostic_state(model.thermodynamics),
             timestepper = prognostic_state(model.timestepper))
 end
 
@@ -130,7 +160,9 @@ function restore_prognostic_state!(restored::ISM, from)
     restore_prognostic_state!(restored.clock, from.clock)
     restore_prognostic_state!(restored.geometry, from.geometry)
     restore_prognostic_state!(restored.velocities, from.velocities)
+    restore_prognostic_state!(restored.thermodynamics, from.thermodynamics)
     restore_prognostic_state!(restored.timestepper, from.timestepper)
+    update_thermal_diagnostics!(restored, restored.thermodynamics)
     return restored
 end
 
@@ -154,6 +186,7 @@ function Base.show(io::IO, model::ISM)
     print(io, "├── friction: ", summary(model.friction), '\n')
     print(io, "├── grounding: ", summary(model.grounding), '\n')
     print(io, "├── masking: ", summary(model.masking), '\n')
+    print(io, "├── thermodynamics: ", summary(model.thermodynamics), '\n')
     print(io, "├── velocity_solver: ", summary(model.velocity_solver), '\n')
     print(io, "├── advection: ", summary(model.advection), '\n')
     print(io, "└── timestepper: ", summary(model.timestepper))

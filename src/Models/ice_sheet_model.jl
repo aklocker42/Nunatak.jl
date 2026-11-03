@@ -27,7 +27,7 @@ struct IceSheetModel{TS, Arch, G, SG, C, PC, SB, R, F, GR, MK, TH, U, GE, B, A, 
     grounding :: GR
     "ice mask, e.g. `SmoothIceMask`"
     masking :: MK
-    "thermodynamics (reserved, `nothing` in phase 0)"
+    "`EnthalpyThermodynamics`, or `nothing`"
     thermodynamics :: TH
     "velocities `(u, v, uᵇ, vᵇ, uσ, vσ)`"
     velocities :: U
@@ -96,14 +96,19 @@ function IceSheetModel(grid;
     bed = parameter_field(grid, bed)
     surface_mass_balance = parameter_field(grid, surface_mass_balance)
     basal_melt_rate = parameter_field(grid, basal_melt_rate)
+    thermodynamics = materialize_thermodynamics(thermodynamics, grid, σgrid, clock)
+    rheology = materialize_rheology(rheology, σgrid, thermodynamics)
 
     timestepper = TimeStepper(timestepper, grid, (; H = geometry.H))
     check_advection_halo(advection, grid)
     advection = materialize_advection(advection, grid)
 
-    return IceSheetModel(architecture(grid), grid, σgrid, clock, constants, stress_balance, rheology, friction,
-                         grounding, masking, thermodynamics, velocities, geometry, bed, surface_mass_balance,
-                         basal_melt_rate, auxiliary, velocity_solver, timestepper, advection)
+    model = IceSheetModel(architecture(grid), grid, σgrid, clock, constants, stress_balance, rheology, friction,
+                          grounding, masking, thermodynamics, velocities, geometry, bed, surface_mass_balance,
+                          basal_melt_rate, auxiliary, velocity_solver, timestepper, advection)
+
+    update_thermal_diagnostics!(model, thermodynamics)
+    return model
 end
 
 # The finite upper bound keeps the limiter's reverse-mode derivative finite; Inf gives 0 * Inf = NaN.

@@ -7,7 +7,7 @@ Glen's flow law `η = ½ A^(-1/n) ε̇ₑ^((1-n)/n)` with the regularised effect
 $(TYPEDFIELDS)
 """
 struct GlenFlowLaw{A, FT}
-    "rate factor `A` (Pa⁻ⁿ s⁻¹), a `Field` at `(Center, Center, Nothing)`"
+    "rate factor `A` (Pa⁻ⁿ s⁻¹): a `Field` at `(Center, Center, Nothing)`, a `Field` on the σ grid, or an `ArrheniusRateFactor`"
     rate_factor :: A
     "flow-law exponent `n`"
     exponent :: FT
@@ -19,7 +19,8 @@ end
 $(TYPEDSIGNATURES)
 
 Build a `GlenFlowLaw` on `grid`. `rate_factor` is required and may be a number, an array,
-a function `(x, y)`, or a `Field`.
+a function `(x, y)`, a `Field`, a `CenterField` on the σ grid for a prescribed depth-varying `A`,
+or an `ArrheniusRateFactor` for `A` that follows the enthalpy.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -38,7 +39,33 @@ function GlenFlowLaw(grid; rate_factor, exponent = 3, strain_rate_regularization
     return GlenFlowLaw(A, convert(FT, exponent), convert(FT, strain_rate_regularization))
 end
 
+parameter_field(grid, value::ArrheniusRateFactor, LX = Center, LY = Center) = value
+
 Base.summary(r::GlenFlowLaw) = string("GlenFlowLaw(exponent = ", r.exponent, ")")
+
+materialize_rheology(rheology, σgrid, thermodynamics) = rheology
+
+function materialize_rheology(rheology::GlenFlowLaw, σgrid, thermodynamics)
+    rate_factor = materialize_rate_factor(rheology.rate_factor, σgrid, thermodynamics)
+    return GlenFlowLaw(rate_factor, rheology.exponent, rheology.strain_rate_regularization)
+end
+
+materialize_rate_factor(rate_factor, σgrid, thermodynamics) = rate_factor
+materialize_rate_factor(rate_factor::ArrheniusRateFactor, σgrid, thermodynamics) = ArrheniusRateFactor(rate_factor.parameters, CenterField(σgrid))
+materialize_rate_factor(::ArrheniusRateFactor, σgrid, ::Nothing) = throw(ArgumentError("ArrheniusRateFactor needs thermodynamics, e.g. EnthalpyThermodynamics"))
+
+rate_factor_field(rate_factor) = rate_factor
+rate_factor_field(rate_factor::ArrheniusRateFactor) = rate_factor.field
+
+struct UniformInDepth end
+struct VaryingInDepth end
+
+# Kernels receive plain arrays on the GPU, so the location of A is passed to them as a separate argument.
+depth_structure(::Field{<:Any, <:Any, Nothing}) = UniformInDepth()
+depth_structure(::Field) = VaryingInDepth()
+
+@inline rate_factor(i, j, k, A, ::UniformInDepth) = @inbounds A[i, j, 1]
+@inline rate_factor(i, j, k, A, ::VaryingInDepth) = @inbounds A[i, j, k]
 
 """
 $(TYPEDSIGNATURES)
@@ -69,17 +96,17 @@ julia> ησ[1, 1, 1]
 function compute_viscosity!(ησ, rheology::GlenFlowLaw, u, v)
     grid = u.grid
     σgrid = ησ.grid
-    A = rheology.rate_factor
+    A = rate_factor_field(rheology.rate_factor)
     n = rheology.exponent
     ε̇₀ = rheology.strain_rate_regularization
-    launch!(architecture(grid), σgrid, :xyz, _compute_viscosity!, ησ, u, v, A, n, ε̇₀, grid)
+    launch!(architecture(grid), σgrid, :xyz, _compute_viscosity!, ησ, u, v, A, depth_structure(A), n, ε̇₀, grid)
     return nothing
 end
 
-@kernel function _compute_viscosity!(ησ, u, v, A, n, ε̇₀, grid)
+@kernel function _compute_viscosity!(ησ, u, v, A, structure, n, ε̇₀, grid)
     i, j, k = @index(Global, NTuple)
     ε̇ₑ² = effective_strain_rate²(i, j, 1, grid, u, v) + ε̇₀^2
-    @inbounds ησ[i, j, k] = A[i, j, 1]^(-1 / n) * ε̇ₑ²^((1 - n) / 2n) / 2
+    @inbounds ησ[i, j, k] = rate_factor(i, j, k, A, structure)^(-1 / n) * ε̇ₑ²^((1 - n) / 2n) / 2
 end
 
 """
@@ -94,16 +121,16 @@ All velocity and drag halos must be filled.
 function compute_viscosity!(ησ, rheology::GlenFlowLaw, u, v, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ)
     grid = u.grid
     σgrid = ησ.grid
-    A = rheology.rate_factor
+    A = rate_factor_field(rheology.rate_factor)
     n = rheology.exponent
     ε̇₀ = rheology.strain_rate_regularization
-    launch!(architecture(grid), σgrid, :xyz, _compute_shear_viscosity!, ησ, u, v, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, A, n, ε̇₀, grid, σgrid)
+    launch!(architecture(grid), σgrid, :xyz, _compute_shear_viscosity!, ησ, u, v, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, A, depth_structure(A), n, ε̇₀, grid, σgrid)
     return nothing
 end
 
 @inline basal_stress(i, j, k, grid, β, u) = @inbounds β[i, j, k] * u[i, j, k]
 
-@kernel function _compute_shear_viscosity!(ησ, u, v, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, A, n, ε̇₀, grid, σgrid)
+@kernel function _compute_shear_viscosity!(ησ, u, v, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, A, structure, n, ε̇₀, grid, σgrid)
     i, j, k = @index(Global, NTuple)
     ζ = znode(i, j, k, σgrid, Center(), Center(), Center())
     η⁻ = @inbounds ησ[i, j, k]
@@ -111,5 +138,5 @@ end
     ε̇xz = ℑxᶜᵃᵃ(i, j, 1, grid, basal_stress, βᵇᵘ, uᵇ) * (1 - ζ) / 2η⁻
     ε̇yz = ℑyᵃᶜᵃ(i, j, 1, grid, basal_stress, βᵇᵛ, vᵇ) * (1 - ζ) / 2η⁻
     ε̇ₑ² = effective_strain_rate²(i, j, 1, grid, u, v) + ε̇xz^2 + ε̇yz^2 + ε̇₀^2
-    @inbounds ησ[i, j, k] = A[i, j, 1]^(-1 / n) * ε̇ₑ²^((1 - n) / 2n) / 2
+    @inbounds ησ[i, j, k] = rate_factor(i, j, k, A, structure)^(-1 / n) * ε̇ₑ²^((1 - n) / 2n) / 2
 end
