@@ -72,7 +72,8 @@ $(TYPEDSIGNATURES)
 
 Compute the Glen viscosity `ησ = ½ A^(-1/n) (ε̇ₑ² + ε̇₀²)^((1-n)/2n)` on the σ grid from the
 depth-averaged velocities `u`, `v`, whose halos must be filled. The membrane strain rate is
-uniform in the column, so `ησ` varies with depth only through `A`.
+uniform in the column, so `ησ` varies with depth only through `A`. `walls` (`FreeSlipWalls()` or
+`NoSlipWalls()`) sets the shear strain rate at the side walls.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -93,19 +94,19 @@ julia> ησ[1, 1, 1]
 0.5
 ```
 """
-function compute_viscosity!(ησ, rheology::GlenFlowLaw, u, v)
+function compute_viscosity!(ησ, rheology::GlenFlowLaw, u, v, walls = FreeSlipWalls())
     grid = u.grid
     σgrid = ησ.grid
     A = rate_factor_field(rheology.rate_factor)
     n = rheology.exponent
     ε̇₀ = rheology.strain_rate_regularization
-    launch!(architecture(grid), σgrid, :xyz, _compute_viscosity!, ησ, u, v, A, depth_structure(A), n, ε̇₀, grid)
+    launch!(architecture(grid), σgrid, :xyz, _compute_viscosity!, ησ, u, v, walls, A, depth_structure(A), n, ε̇₀, grid)
     return nothing
 end
 
-@kernel function _compute_viscosity!(ησ, u, v, A, structure, n, ε̇₀, grid)
+@kernel function _compute_viscosity!(ησ, u, v, walls, A, structure, n, ε̇₀, grid)
     i, j, k = @index(Global, NTuple)
-    ε̇ₑ² = effective_strain_rate²(i, j, 1, grid, u, v) + ε̇₀^2
+    ε̇ₑ² = effective_strain_rate²(i, j, 1, grid, u, v, walls) + ε̇₀^2
     @inbounds ησ[i, j, k] = rate_factor(i, j, k, A, structure)^(-1 / n) * ε̇ₑ²^((1 - n) / 2n) / 2
 end
 
@@ -116,27 +117,27 @@ Compute the Glen viscosity `ησ` with the DIVA vertical shear added to the memb
 `ε̇ₑ² = ... + ε̇xz² + ε̇yz²` with `ε̇xz = τᵇˣ (1 - ζ) / 2η`. The basal stress `τᵇ = βᵇ uᵇ` comes from the
 friction-law drag `βᵇᵘ`, `βᵇᵛ` and the basal velocities `uᵇ`, `vᵇ`, and `η` is the previous `ησ`,
 so the shear lags one Picard iteration. Where `ησ` is still zero the shear is left out.
-All velocity and drag halos must be filled.
+All velocity and drag halos must be filled. `walls` sets the shear strain rate at the side walls.
 """
-function compute_viscosity!(ησ, rheology::GlenFlowLaw, u, v, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ)
+function compute_viscosity!(ησ, rheology::GlenFlowLaw, u, v, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, walls = FreeSlipWalls())
     grid = u.grid
     σgrid = ησ.grid
     A = rate_factor_field(rheology.rate_factor)
     n = rheology.exponent
     ε̇₀ = rheology.strain_rate_regularization
-    launch!(architecture(grid), σgrid, :xyz, _compute_shear_viscosity!, ησ, u, v, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, A, depth_structure(A), n, ε̇₀, grid, σgrid)
+    launch!(architecture(grid), σgrid, :xyz, _compute_shear_viscosity!, ησ, u, v, walls, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, A, depth_structure(A), n, ε̇₀, grid, σgrid)
     return nothing
 end
 
 @inline basal_stress(i, j, k, grid, β, u) = @inbounds β[i, j, k] * u[i, j, k]
 
-@kernel function _compute_shear_viscosity!(ησ, u, v, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, A, structure, n, ε̇₀, grid, σgrid)
+@kernel function _compute_shear_viscosity!(ησ, u, v, walls, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, A, structure, n, ε̇₀, grid, σgrid)
     i, j, k = @index(Global, NTuple)
     ζ = znode(i, j, k, σgrid, Center(), Center(), Center())
     η⁻ = @inbounds ησ[i, j, k]
     η⁻ = ifelse(iszero(η⁻), typemax(η⁻), η⁻)
     ε̇xz = ℑxᶜᵃᵃ(i, j, 1, grid, basal_stress, βᵇᵘ, uᵇ) * (1 - ζ) / 2η⁻
     ε̇yz = ℑyᵃᶜᵃ(i, j, 1, grid, basal_stress, βᵇᵛ, vᵇ) * (1 - ζ) / 2η⁻
-    ε̇ₑ² = effective_strain_rate²(i, j, 1, grid, u, v) + ε̇xz^2 + ε̇yz^2 + ε̇₀^2
+    ε̇ₑ² = effective_strain_rate²(i, j, 1, grid, u, v, walls) + ε̇xz^2 + ε̇yz^2 + ε̇₀^2
     @inbounds ησ[i, j, k] = rate_factor(i, j, k, A, structure)^(-1 / n) * ε̇ₑ²^((1 - n) / 2n) / 2
 end

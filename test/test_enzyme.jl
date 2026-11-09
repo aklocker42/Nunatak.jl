@@ -1,6 +1,8 @@
 using Enzyme
 using Nunatak: ice_sheet_velocities, ice_sheet_auxiliary_fields, update_diva_coefficients!, compute_velocity_profile!
 using Oceananigans.Advection: cell_advection_timescale
+using Oceananigans.Diagnostics: cell_diffusion_timescale
+using Oceananigans.TimeSteppers: update_state!
 
 function sum_of_squares(f)
     Nx, Ny, _ = size(f)
@@ -60,7 +62,7 @@ function diva_velocity_cost(velocities, picard, solver, τ, η̄H, η̄Hᶠᶠ, 
 end
 
 # Sliding and deformation of comparable size, so the gradient runs through both βᵇ and the shear integrals.
-function diva_problem(; Lx = 8e4, Ly = 6e4, τ₀ = 1e4)
+function diva_problem(; Lx = 8e4, Ly = 6e4, τ₀ = 1e4, picard_control = FixedIterations(3))
     grid = RectilinearGrid(size = (8, 6), x = (0, Lx), y = (0, Ly), topology = (Bounded, Periodic, Flat))
     σgrid = SigmaGrid(grid; Nσ = 6)
     velocities = ice_sheet_velocities(grid, σgrid)
@@ -82,9 +84,19 @@ function diva_problem(; Lx = 8e4, Ly = 6e4, τ₀ = 1e4)
     friction = WeertmanFriction(grid; coefficient = (x, y) -> 1e6 * (1 + x / Lx))
 
     solver = VelocityConjugateGradientSolver(ssa_operator!, grid; iteration_control = Convergence(; reltol = 1e-14, maxiter = 10_000))
-    picard = PicardIteration(grid; iteration_control = FixedIterations(3))
+    picard = PicardIteration(grid; iteration_control = picard_control)
 
     return (velocities, picard, solver, τ, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, nothing, βᵇᵘ, βᵇᵛ)
+end
+
+function ridge_model(picard_iteration_control; L = 64e3, adjoint_iteration_control = picard_iteration_control)
+    grid = RectilinearGrid(arch; size = (16, 4), halo = (4, 4), x = (0, L), y = (0, 16e3), topology = (Bounded, Periodic, Flat))
+    velocity_solver = StressBalanceSolver(grid; linear_iteration_control = Convergence(; reltol = 1e-14, maxiter = 10_000),
+                                          picard_iteration_control, adjoint_iteration_control)
+    model = IceSheetModel(grid; velocity_solver, rheology = GlenFlowLaw(grid; rate_factor = 1e-24),
+                          friction = WeertmanFriction(grid; coefficient = (x, y) -> 3e6 * (1 + x / L)), surface_mass_balance = 1e-8)
+    set!(model; H = (x, y) -> 500 + 300 * exp(-((x - L / 2) / 12e3)^2) * (1 + sin(2π * y / 16e3) / 5))
+    return model
 end
 
 function thickness_cost(model, H₀, Δt, Nt)
@@ -96,6 +108,25 @@ function thickness_cost(model, H₀, Δt, Nt)
 end
 
 thickness_sum_of_squares(model) = sum_of_squares(model.geometry.H)
+
+function restored_thickness_cost(model, state₀, H₀, Δt, Nt)
+    Oceananigans.restore_prognostic_state!(model, state₀)
+    parent(model.geometry.H) .= parent(H₀)
+    for _ in 1:Nt
+        time_step!(model, Δt)
+    end
+    return sum_of_squares(model.geometry.H)
+end
+
+# Diagnosed velocities must come from H₀, not from the end of the previous evaluation.
+function diagnosed_thickness_cost(model, H₀, Δt, Nt)
+    parent(model.geometry.H) .= parent(H₀)
+    update_state!(model)
+    for _ in 1:Nt
+        time_step!(model, Δt)
+    end
+    return sum_of_squares(model.geometry.H)
+end
 
 function energy_cost(model, H₀, E₀, mᵍ₀, Δt, Nt)
     (; E, Hw, mᵍ, Hⁿ) = model.thermodynamics.state
@@ -260,6 +291,132 @@ end
         end
     end
 
+    @testset "Fixed-point adjoint of converged DIVA Picard iterations" begin
+        problem = diva_problem(; picard_control = Convergence(; reltol = 1e-12, maxiter = 300))
+        rheology, friction = problem[12:13]
+        shadows = map(Enzyme.make_zero, problem)
+        arguments = map(problem, shadows) do value, shadow
+            value isa Union{Nothing, PicardIteration, VelocityConjugateGradientSolver} ? Const(value) : Duplicated(value, shadow)
+        end
+        autodiff(set_runtime_activity(Reverse), diva_velocity_cost, Active, arguments...)
+
+        cost() = diva_velocity_cost(problem...)
+        dA, dC = shadows[12].rate_factor, shadows[13].coefficient
+        for (name, field, shadow, index) in (("A", rheology.rate_factor, dA, (3, 2)),
+                                             ("A", rheology.rate_factor, dA, (6, 5)),
+                                             ("C", friction.coefficient, dC, (4, 3)),
+                                             ("C", friction.coefficient, dC, (7, 6)))
+            fd = centred_difference(cost, field, index, 1e-4 * field[index..., 1])
+            ad = shadow[index..., 1]
+            @info "∂J/∂$name through converged DIVA" index ad fd
+            @test abs(ad - fd) < 1e-6 * abs(fd)
+        end
+
+        taped = diva_problem(; picard_control = FixedIterations(60))
+        taped_shadows = map(Enzyme.make_zero, taped)
+        taped_arguments = map(taped, taped_shadows) do value, shadow
+            value isa Union{Nothing, PicardIteration, VelocityConjugateGradientSolver} ? Const(value) : Duplicated(value, shadow)
+        end
+        autodiff(set_runtime_activity(Reverse), diva_velocity_cost, Active, taped_arguments...)
+        for (fixed_point, unrolled) in ((dA, taped_shadows[12].rate_factor), (dC, taped_shadows[13].coefficient))
+            a, b = Array(interior(fixed_point)), Array(interior(unrolled))
+            @info "Fixed-point vs taped Picard adjoint" maximum(abs, a .- b) / maximum(abs, b)
+            @test a ≈ b rtol = 1e-8
+        end
+    end
+
+    @testset "Fixed-point adjoint of converged SSA Picard iterations" begin
+        model = ridge_model(Convergence(; reltol = 1e-12, maxiter = 300))
+        H₀ = deepcopy(model.geometry.H)
+        dH₀, dmodel = Enzyme.make_zero(H₀), Enzyme.make_zero(model)
+        autodiff(set_runtime_activity(Reverse), ice_cap_velocity_cost, Active, Duplicated(model, dmodel), Duplicated(H₀, dH₀))
+
+        cost() = ice_cap_velocity_cost(model, H₀)
+        dC = dmodel.friction.coefficient
+        for (name, field, shadow, index) in (("H", H₀, dH₀, (6, 2)),
+                                             ("H", H₀, dH₀, (10, 3)),
+                                             ("C", model.friction.coefficient, dC, (7, 2)))
+            fd = centred_difference(cost, field, index, 1e-4 * field[index..., 1])
+            ad = shadow[index..., 1]
+            @info "∂J/∂$name through converged SSA" index ad fd
+            @test abs(ad - fd) < 1e-5 * abs(fd)
+        end
+
+        taped = ridge_model(FixedIterations(60))
+        taped_H₀ = deepcopy(taped.geometry.H)
+        taped_dH₀, taped_dmodel = Enzyme.make_zero(taped_H₀), Enzyme.make_zero(taped)
+        autodiff(set_runtime_activity(Reverse), ice_cap_velocity_cost, Active, Duplicated(taped, taped_dmodel), Duplicated(taped_H₀, taped_dH₀))
+        for (fixed_point, unrolled) in ((dH₀, taped_dH₀), (dC, taped_dmodel.friction.coefficient))
+            a, b = Array(interior(fixed_point)), Array(interior(unrolled))
+            @info "Fixed-point vs taped SSA Picard adjoint" maximum(abs, a .- b) / maximum(abs, b)
+            @test a ≈ b rtol = 1e-8
+        end
+    end
+
+    @testset "Unconverged fixed-point adjoint warns" begin
+        model = ridge_model(Convergence(; reltol = 1e-12, maxiter = 300); adjoint_iteration_control = Convergence(; reltol = 1e-12, maxiter = 1))
+        H₀ = deepcopy(model.geometry.H)
+        @test_logs (:warn, r"Picard adjoint did not converge") match_mode = :any autodiff(set_runtime_activity(Reverse), ice_cap_velocity_cost, Active,
+                                                                                         Duplicated(model, Enzyme.make_zero(model)),
+                                                                                         Duplicated(H₀, Enzyme.make_zero(H₀)))
+    end
+
+    @testset "Checkpointed gradient through converged Picard and Arrhenius energy steps" begin
+        L = 64e3
+        grid = RectilinearGrid(arch; size = (16, 4), halo = (4, 4), x = (0, L), y = (0, 16e3), topology = (Bounded, Periodic, Flat))
+        velocity_solver = StressBalanceSolver(grid; linear_iteration_control = Convergence(; reltol = 1e-14, maxiter = 10_000),
+                                              picard_iteration_control = Convergence(; reltol = 1e-12, maxiter = 300))
+        thermodynamics = EnthalpyThermodynamics(grid; geothermal_flux = (x, y) -> 0.06 + 0.3 * x / L, surface_temperature = 255)
+        model = IceSheetModel(grid; Nσ = 6, velocity_solver, thermodynamics, rheology = GlenFlowLaw(grid; rate_factor = ArrheniusRateFactor(grid)),
+                              friction = WeertmanFriction(grid; coefficient = (x, y) -> 3e6 * (1 + x / L)), surface_mass_balance = 1e-8)
+        set!(model; H = (x, y) -> 500 + 300 * exp(-((x - L / 2) / 12e3)^2) * (1 + sin(2π * y / 16e3) / 5),
+             T = (x, y, ζ) -> 240 + 30 * (1 - ζ) * (1 + x / L))
+        Δt = cell_advection_timescale(model) / 200
+        Nt = 4
+        state₀ = deepcopy(Oceananigans.prognostic_state(model))
+        H₀ = deepcopy(model.geometry.H)
+        J₀ = restored_thickness_cost(model, state₀, H₀, Δt, Nt)
+        @test restored_thickness_cost(model, state₀, H₀, Δt, Nt) == J₀
+
+        gradients = map((1, Nt)) do checkpoint_interval
+            Oceananigans.restore_prognostic_state!(model, state₀)
+            dmodel = Enzyme.make_zero(model)
+            J = checkpointed_gradient!(dmodel, thickness_sum_of_squares, model, Δt, Nt; checkpoint_interval)
+            @test J ≈ J₀
+            return Array(interior(dmodel.geometry.H)), Array(interior(dmodel.thermodynamics.geothermal_flux))
+        end
+        for (one_step, whole_run) in zip(gradients...)
+            @info "Checkpoint interval 1 vs $Nt through energy steps" maximum(abs, one_step .- whole_run) / maximum(abs, one_step)
+            @test one_step ≈ whole_run rtol = 1e-8
+        end
+    end
+
+    @testset "Checkpointed gradient through converged Picard time steps" begin
+        model = ridge_model(Convergence(; reltol = 1e-12, maxiter = 300))
+        update_state!(model)
+        Δt = cell_advection_timescale(model) / 200
+        Nt = 6
+        state₀ = deepcopy(Oceananigans.prognostic_state(model))
+        H₀ = deepcopy(model.geometry.H)
+
+        cost() = restored_thickness_cost(model, state₀, H₀, Δt, Nt)
+        J₀ = cost()
+        Oceananigans.restore_prognostic_state!(model, state₀)
+        dmodel = Enzyme.make_zero(model)
+        J = checkpointed_gradient!(dmodel, thickness_sum_of_squares, model, Δt, Nt; checkpoint_interval = 2)
+        @test J ≈ J₀
+
+        for (name, field, shadow, index) in (("H₀", H₀, dmodel.geometry.H, (6, 2)),
+                                             ("H₀", H₀, dmodel.geometry.H, (10, 3)),
+                                             ("C", model.friction.coefficient, dmodel.friction.coefficient, (7, 2)),
+                                             ("a", model.surface_mass_balance, dmodel.surface_mass_balance, (9, 3)))
+            fd = centred_difference(cost, field, index, 1e-4 * abs(field[index..., 1]))
+            ad = shadow[index..., 1]
+            @info "∂J/∂$name through $Nt checkpointed converged time steps" index ad fd
+            @test abs(ad - fd) < 1e-5 * abs(fd)
+        end
+    end
+
     @testset "Thickness transport through time_step!" begin
         L = 16e3
         transport_grid = RectilinearGrid(arch; size = (16, 4), halo = (4, 4), x = (0, L), y = (0, 4e3), topology = (Bounded, Periodic, Flat))
@@ -299,6 +456,34 @@ end
             fd = centred_difference(cost, H₀, index, 1e-6 * H₀[index..., 1])
             ad = dcheckpointed.geometry.H[index..., 1]
             @info "∂J/∂H₀ through $Nt checkpointed time steps" index ad fd
+            @test abs(ad - fd) < 1e-6 * abs(fd)
+        end
+    end
+
+    @testset "Shallow-ice thickness evolution through time_step!" begin
+        L = 16e3
+        sia_grid = RectilinearGrid(arch; size = (16, 4), halo = (4, 4), x = (0, L), y = (0, 4e3), topology = (Bounded, Periodic, Flat))
+        model = IceSheetModel(sia_grid; stress_balance = ShallowIce(), rheology = GlenFlowLaw(sia_grid; rate_factor = 1e-24),
+                              friction = WeertmanFriction(sia_grid; coefficient = 1e10, exponent = 1),
+                              constants = IceSheetConstants(sia_grid; ice_density = 910))
+        set!(model; H = (x, y) -> 500 + 300 * exp(-((x - L / 2) / 3e3)^2))
+        H₀ = deepcopy(model.geometry.H)
+        Δt = cell_diffusion_timescale(model) / 4
+        Nt = 6
+
+        dmodel = Enzyme.make_zero(model)
+        dH₀ = Enzyme.make_zero(H₀)
+        autodiff(set_runtime_activity(Reverse), diagnosed_thickness_cost, Active,
+                 Duplicated(model, dmodel), Duplicated(H₀, dH₀), Const(Δt), Const(Nt))
+
+        cost() = diagnosed_thickness_cost(model, H₀, Δt, Nt)
+        @test cost() == cost()
+        for (name, field, shadow, index) in (("H₀", H₀, dH₀, (6, 2)),
+                                             ("H₀", H₀, dH₀, (10, 3)),
+                                             ("C", model.friction.coefficient, dmodel.friction.coefficient, (7, 2)))
+            fd = centred_difference(cost, field, index, 1e-6 * abs(field[index..., 1]))
+            ad = shadow[index..., 1]
+            @info "∂J/∂$name through $Nt shallow-ice time steps" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
         end
     end

@@ -18,9 +18,10 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Ice thickness `H`, surface elevation `s`, grounded fraction `φ`, effective pressure `N`, ice mask and
-`clipped_thickness` at `(Center, Center)`, and the grounded fractions `φᵘ`, `φᵛ` at the velocity points.
-`clipped_thickness` accumulates the thickness added by clipping `H` at zero, so the volume budget closes.
+Ice thickness `H`, surface elevation `s`, grounded fraction `φ`, effective pressure `N`, ice mask,
+`clipped_thickness` and `front_thickness` at `(Center, Center)`, and the grounded fractions `φᵘ`, `φᵛ` at the
+velocity points. `clipped_thickness` accumulates the thickness added by clipping `H` at zero, so the volume budget
+closes. `front_thickness` is the thickness of the ice in partially filled front cells of a `PartialCellFront`.
 """
 function ice_sheet_geometry(grid)
     H = Field{Center, Center, Nothing}(grid)
@@ -31,7 +32,8 @@ function ice_sheet_geometry(grid)
     N = Field{Center, Center, Nothing}(grid)
     ice_mask = Field{Center, Center, Nothing}(grid)
     clipped_thickness = Field{Center, Center, Nothing}(grid)
-    return (; H, s, φ, φᵘ, φᵛ, N, ice_mask, clipped_thickness)
+    front_thickness = Field{Center, Center, Nothing}(grid)
+    return (; H, s, φ, φᵘ, φᵛ, N, ice_mask, clipped_thickness, front_thickness)
 end
 
 """

@@ -57,7 +57,13 @@ velocities are solved by a `StressBalanceSolver` in `update_state!`; pass `veloc
 to keep them fixed. The thickness is transported by the depth-averaged velocity with `advection`,
 fifth-order WENO limited to `0 ≤ H ≤ 100 km` by default, which needs a horizontal halo of at least 4;
 `UpwindBiased(order = 1)` works with any halo. Cells thinner than `masking.minimum_thickness` are
-ice free and drop out of the stress balance; see `SmoothIceMask`.
+ice free and drop out of the stress balance; see `SmoothIceMask`. `masking = PartialCellFront(grid)` instead
+advances calving fronts with partially filled cells.
+
+With `stress_balance = ShallowIce()` the velocities follow from the local surface slope through a
+`ShallowIceSolver` (no linear solve), the default thickness advection is `Centered(order = 2)` so the
+flux is the diffusive flux of Mahaffy (1976), and `friction` must be `nothing` or a `WeertmanFriction`.
+`cell_diffusion_timescale(model)` then bounds the stable explicit time step.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -84,10 +90,12 @@ function IceSheetModel(grid;
                        bed = 0,
                        surface_mass_balance = 0,
                        basal_melt_rate = 0,
-                       velocity_solver = default_velocity_solver(grid, rheology),
-                       advection = default_thickness_advection(grid),
+                       velocity_solver = default_velocity_solver(grid, rheology, stress_balance),
+                       advection = default_thickness_advection(grid, stress_balance),
                        timestepper = :SplitRungeKutta3)
 
+    validate_stress_balance(stress_balance, rheology, friction)
+    validate_velocity_solver(stress_balance, velocity_solver)
     σgrid = SigmaGrid(grid; Nσ, bed_refinement)
     velocities = ice_sheet_velocities(grid, σgrid)
     geometry = ice_sheet_geometry(grid)
@@ -112,7 +120,10 @@ function IceSheetModel(grid;
 end
 
 # The finite upper bound keeps the limiter's reverse-mode derivative finite; Inf gives 0 * Inf = NaN.
-default_thickness_advection(grid) = WENO(eltype(grid); order = 5, bounds = (zero(grid), convert(eltype(grid), 1e5)))
+default_thickness_advection(grid, stress_balance) = WENO(eltype(grid); order = 5, bounds = (zero(grid), convert(eltype(grid), 1e5)))
+
+# Centred face thickness makes the shallow-ice flux the diffusive flux of Mahaffy (1976).
+default_thickness_advection(grid, ::ShallowIce) = Centered(eltype(grid); order = 2)
 
 check_advection_halo(advection, grid) = nothing
 

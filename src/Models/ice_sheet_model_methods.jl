@@ -6,15 +6,24 @@ $(TYPEDSIGNATURES)
 Set the ice thickness `H` and the depth-averaged velocities `u`, `v`, then update the state.
 Given velocities are the initial guess of the stress-balance solve. With thermodynamics, `E` sets the
 enthalpy and `T` the temperature of cold ice, as functions of `(x, y, ζ)`, a number or a `Field`.
+With a `PartialCellFront`, setting `H` flags every cell holding ice as full.
 """
 function set!(model::ISM; H = nothing, u = nothing, v = nothing, E = nothing, T = nothing)
-    set_if_given!(model.geometry.H, H)
+    set_thickness!(model, H)
     set_if_given!(model.velocities.u, u)
     set_if_given!(model.velocities.v, v)
     update_geometry_state!(model)
     set_thermal_state!(model, model.thermodynamics, E, T)
     update_velocities!(model, model.velocity_solver)
     fill_velocity_halos!(model)
+    return nothing
+end
+
+set_thickness!(model, ::Nothing) = nothing
+
+function set_thickness!(model, H)
+    set!(model.geometry.H, H)
+    initialize_front!(model.geometry, model.masking)
     return nothing
 end
 
@@ -86,7 +95,7 @@ fill_velocity_halos!(model::ISM) = fill_halo_regions!((model.velocities.u, model
 
 maybe_update_velocities!(model, ::Nothing) = nothing
 
-function maybe_update_velocities!(model, solver::StressBalanceSolver)
+function maybe_update_velocities!(model, solver)
     solver.schedule(model) && update_velocities!(model, solver)
     return nothing
 end
@@ -111,7 +120,7 @@ function update_velocities!(model, solver::StressBalanceSolver, ::SSA)
     τ = VelocityVector(τᵘ, τᵛ)
     x = VelocityVector(model.velocities.u, model.velocities.v)
     compute_driving_stress!(τ, H, s, constants.ice_density, constants.ocean_density, constants.gravitational_acceleration, ice_mask)
-    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, model.rheology, model.friction, φᵘ, φᵛ, N, ice_mask)
+    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, model.rheology, model.friction, φᵘ, φᵛ, N, ice_mask, model.stress_balance.side_walls)
     solver.iteration = picard_solve!(x, solver.picard, solver.linear_solver, update_stress_balance_coefficients!, τ, coefficients...)
     extend_depth_average!(model.velocities)
     return nothing
@@ -125,10 +134,27 @@ function update_velocities!(model, solver::StressBalanceSolver, ::DIVA)
     τ = VelocityVector(τᵘ, τᵛ)
     x = VelocityVector(model.velocities.u, model.velocities.v)
     compute_driving_stress!(τ, H, s, constants.ice_density, constants.ocean_density, constants.gravitational_acceleration, ice_mask)
-    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, model.rheology, model.friction, φᵘ, φᵛ, N, ice_mask, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ)
+    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, model.rheology, model.friction, φᵘ, φᵛ, N, ice_mask, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, model.stress_balance.side_walls)
     solver.iteration = picard_solve!(x, solver.picard, solver.linear_solver, update_diva_coefficients!, τ, coefficients...)
     fill_halo_regions!(ησ)
     compute_velocity_profile!(model.velocities, βᵇᵘ, βᵇᵛ, F₂, ησ, H)
+    return nothing
+end
+
+friction_coefficient(::Nothing) = nothing
+friction_coefficient(friction) = friction.coefficient
+
+function update_velocities!(model, ::ShallowIceSolver)
+    (; H, s, φᵘ, φᵛ, N) = model.geometry
+    (; βᵘ, βᵛ) = model.auxiliary
+    (; uᵇ, vᵇ) = model.velocities
+    ρᵢg = model.constants.ice_density * model.constants.gravitational_acceleration
+    # The face rate factor and friction coefficient average across the halo at periodic and wall faces.
+    fill_halo_regions!(rate_factor_field(model.rheology.rate_factor))
+    fill_halo_regions!(friction_coefficient(model.friction))
+    compute_shallow_ice_velocities!(model.velocities, H, s, φᵘ, φᵛ, model.rheology, model.friction, ρᵢg)
+    fill_halo_regions!((uᵇ, vᵇ))
+    compute_basal_drag!(βᵘ, βᵛ, model.friction, uᵇ, vᵇ, φᵘ, φᵛ, N)
     return nothing
 end
 

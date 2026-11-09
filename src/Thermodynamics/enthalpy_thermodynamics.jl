@@ -168,12 +168,14 @@ end
 prognostic_state(th::EnthalpyThermodynamics) = (E = prognostic_state(th.state.E),
                                                 Hw = prognostic_state(th.state.Hw),
                                                 Hⁿ = prognostic_state(th.state.Hⁿ),
+                                                mᵍ = prognostic_state(th.state.mᵍ),
                                                 last_step_time = th.last_step_time[])
 
 function restore_prognostic_state!(restored::EnthalpyThermodynamics, from)
     restore_prognostic_state!(restored.state.E, from.E)
     restore_prognostic_state!(restored.state.Hw, from.Hw)
     restore_prognostic_state!(restored.state.Hⁿ, from.Hⁿ)
+    restore_prognostic_state!(restored.state.mᵍ, from.mᵍ)
     restored.last_step_time[] = from.last_step_time
     return restored
 end

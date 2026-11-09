@@ -83,13 +83,15 @@ end
     Nx, Ny = 7, 6
     stretched_x = collect(range(0, 1, length = Nx + 1)) .^ 1.4
     probe_grid = RectilinearGrid(CPU(); size = (Nx, Ny), x = stretched_x, y = (0, 1), topology = (Bounded, Bounded, Flat))
-    coefficients = ssa_coefficients(probe_grid)
-    exact_diagonal = operator_diagonal(probe_grid, coefficients)
-    z, r = VelocityVector(probe_grid), VelocityVector(probe_grid)
-    fill!(r, 1)
-    precondition!(z, StressBalanceDiagonalPreconditioner(), r, coefficients...)
-    @test interior(z.u)[2:Nx, :, 1] .* interior(exact_diagonal.u)[2:Nx, :, 1] ≈ ones(Nx - 1, Ny)
-    @test interior(z.v)[:, 2:Ny, 1] .* interior(exact_diagonal.v)[:, 2:Ny, 1] ≈ ones(Nx, Ny - 1)
+    for walls in (FreeSlipWalls(), NoSlipWalls())
+        coefficients = (ssa_coefficients(probe_grid)..., walls)
+        exact_diagonal = operator_diagonal(probe_grid, coefficients)
+        z, r = VelocityVector(probe_grid), VelocityVector(probe_grid)
+        fill!(r, 1)
+        precondition!(z, StressBalanceDiagonalPreconditioner(), r, coefficients...)
+        @test interior(z.u)[2:Nx, :, 1] .* interior(exact_diagonal.u)[2:Nx, :, 1] ≈ ones(Nx - 1, Ny)
+        @test interior(z.v)[:, 2:Ny, 1] .* interior(exact_diagonal.v)[:, 2:Ny, 1] ≈ ones(Nx, Ny - 1)
+    end
 
     contrast_grid = RectilinearGrid(arch; size = (48, 32), x = (0, 1), y = (0, 1), topology = (Bounded, Periodic, Flat))
     coefficients = ssa_coefficients(contrast_grid; η̄H = (x, y) -> 1 + 1e3 * x^4, β = (x, y) -> 1e4 * exp(-20x))

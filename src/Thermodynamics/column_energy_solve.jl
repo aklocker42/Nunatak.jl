@@ -17,6 +17,7 @@ end
 
 basal_drag(::SSA, auxiliary) = (auxiliary.βᵘ, auxiliary.βᵛ)
 basal_drag(::DIVA, auxiliary) = (auxiliary.βᵇᵘ, auxiliary.βᵇᵛ)
+basal_drag(::ShallowIce, auxiliary) = (auxiliary.βᵘ, auxiliary.βᵛ)
 
 """
 $(TYPEDSIGNATURES)
@@ -96,6 +97,7 @@ update_rate_factor!(rheology::GlenFlowLaw, args...) = update_rate_factor!(rheolo
 
 function update_rate_factor!(rate_factor::ArrheniusRateFactor, T, ω, σgrid, H, parameters, constants)
     launch!(architecture(σgrid), σgrid, :xyz, _compute_rate_factor!, rate_factor.field, rate_factor.parameters, T, ω, σgrid, H, parameters, constants)
+    fill_halo_regions!(rate_factor.field)
     return nothing
 end
 

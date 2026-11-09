@@ -2,13 +2,14 @@ module Nunatak
 
 export SigmaGrid, sigma_faces
 export IceSheetModel
-export DepthIntegrated, DIVAShear
+export DepthIntegrated, DIVAShear, FreeSlipWalls, NoSlipWalls, ShallowIce, ShallowIceSolver
 export GlenFlowLaw, ArrheniusRateFactor
 export EnthalpyThermodynamics
 export WeertmanFriction, RegularizedCoulombFriction
-export SubgridGroundedFraction, IceSheetConstants, SmoothIceMask
+export SubgridGroundedFraction, IceSheetConstants, SmoothIceMask, PartialCellFront
 export StressBalanceSolver
-export VelocityVector, VelocityConjugateGradientSolver, JacobiPreconditioner, StressBalanceDiagonalPreconditioner
+export VelocityVector, VelocityConjugateGradientSolver, JacobiPreconditioner, StressBalanceDiagonalPreconditioner,
+       StressBalanceMultigridPreconditioner
 export Convergence, FixedIterations, PicardIteration
 export solve!, adjoint_solve!, precondition!, picard_solve!
 export checkpointed_gradient!
@@ -20,18 +21,22 @@ using LinearAlgebra: LinearAlgebra
 
 using Oceananigans
 using Oceananigans: AbstractModel
-using Oceananigans.Advection: div_Uc, UpwindBiased, BoundsPreservingWENO, materialize_advection, update_bounds_preserving_limiter!
+using Oceananigans.Advection: div_Uc, UpwindBiased, BoundsPreservingWENO, materialize_advection, update_bounds_preserving_limiter!,
+                             _advective_tracer_flux_x, _advective_tracer_flux_y, _biased_interpolate_xᶠᵃᵃ, _biased_interpolate_yᵃᶠᵃ,
+                             LeftBias, RightBias, upwind_biased_product, rescaled_reconstruction
+using Oceananigans.Architectures: on_architecture
 using Oceananigans.Fields: interior, ZeroField
-using Oceananigans.Grids: AbstractGrid, RectilinearGrid, Flat, Bounded, topology, halo_size, znode,
-                          cpu_face_constructor_x, cpu_face_constructor_y, pop_flat_elements, peripheral_node
+using Oceananigans.Grids: AbstractGrid, RectilinearGrid, Flat, Bounded, Periodic, topology, xnode, ynode, halo_size, znode,
+                          cpu_face_constructor_x, cpu_face_constructor_y, pop_flat_elements, peripheral_node, inactive_cell
 using Oceananigans.Solvers: BatchedTridiagonalSolver
 using Oceananigans.Operators: δxᶠᶜᶜ, δyᶠᶜᶜ, δxᶜᶠᶜ, δyᶜᶠᶜ, ∂xᶜᶜᶜ, ∂yᶜᶜᶜ, ∂xᶠᶠᶜ, ∂yᶠᶠᶜ, ∂xᶠᶜᶜ, ∂yᶜᶠᶜ,
-                              Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Azᶠᶜᶜ, Azᶜᶠᶜ, Azᶜᶜᶜ,
+                              Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δxᶠᶜᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ, Δyᶜᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Azᶠᶜᶜ, Azᶜᶠᶜ, Azᶜᶜᶜ, Axᶠᶜᶜ, Ayᶜᶠᶜ, Vᶜᶜᶜ, δxᶜᵃᵃ, δyᵃᶜᵃ,
                               ℑxᶠᵃᵃ, ℑyᵃᶠᵃ, ℑxᶜᵃᵃ, ℑyᵃᶜᵃ, ℑxyᶜᶜᵃ, ℑxyᶠᶠᵃ, ℑxyᶠᶜᵃ, ℑxyᶜᶠᵃ
 using Oceananigans.TimeSteppers: TimeStepper, Clock, SplitRungeKuttaTimeStepper
 using Oceananigans.Utils: launch!, prettysummary
 
 import Oceananigans.Advection: cell_advection_timescale
+import Oceananigans.Diagnostics: cell_diffusion_timescale
 import Oceananigans: fields, prognostic_fields, initialize!, prognostic_state, restore_prognostic_state!
 import Oceananigans.Architectures: architecture
 import Oceananigans.BoundaryConditions: fill_halo_regions!
@@ -59,9 +64,12 @@ include("Solvers/iteration_controls.jl")
 include("Solvers/velocity_vector.jl")
 include("Solvers/conjugate_gradient.jl")
 include("StressBalances/diagonal_preconditioner.jl")
+include("StressBalances/multigrid_preconditioner.jl")
 include("Solvers/picard.jl")
 include("StressBalances/stress_balance_solver.jl")
+include("StressBalances/shallow_ice.jl")
 include("Models/smooth_ice_mask.jl")
+include("Models/partial_cell_front.jl")
 include("Thermodynamics/enthalpy_thermodynamics.jl")
 include("Thermodynamics/enthalpy_conversions.jl")
 include("Thermodynamics/layer_transport.jl")
