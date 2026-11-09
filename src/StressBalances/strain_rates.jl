@@ -21,10 +21,10 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Square of the membrane effective strain rate at cell centres,
+Square of the membrane effective strain rate at cell centers,
 `ε̇ₑ² = ε̇ₓₓ² + ε̇ᵧᵧ² + ε̇ₓₓ ε̇ᵧᵧ + ε̇ₓᵧ²`, with `ε̇ₓᵧ²` averaged from the cell corners under the wall condition `walls`.
 """
-@inline function effective_strain_rate²(i, j, k, grid, u, v, walls = FreeSlipWalls())
+@inline function effective_strain_rate²(i, j, k, grid, u, v, walls)
     ε̇xx = strain_rate_xx(i, j, k, grid, u)
     ε̇yy = strain_rate_yy(i, j, k, grid, v)
     ε̇xy² = ℑxyᶜᶜᵃ(i, j, k, grid, strain_rate_xy², u, v, walls)

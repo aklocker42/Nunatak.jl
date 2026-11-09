@@ -17,6 +17,9 @@ Apply the preconditioner `P` to the residual `r`, storing the result in `z`.
 """
 precondition!(z, ::Nothing, r, args...) = copyto!(z, r)
 
+# Preconditioners that store state built from the operator coefficients refresh it once per solve.
+update_preconditioner!(P, args...) = nothing
+
 function precondition!(z::VelocityVector, P::JacobiPreconditioner, r::VelocityVector, args...)
     return divide!(z, r, P.diagonal)
 end
@@ -109,6 +112,7 @@ function conjugate_gradient!(x, operation!, solver, b, args...)
     fill_halo_regions!(x)
     operation!(q, x, args...)
     subtract!(r, b, q)
+    update_preconditioner!(solver.preconditioner, args...)
     precondition!(z, solver.preconditioner, r, args...)
     copyto!(p, z)
     ρ = vector_dot!(w, r, z)

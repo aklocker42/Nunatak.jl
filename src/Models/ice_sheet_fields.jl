@@ -40,7 +40,7 @@ end
 $(TYPEDSIGNATURES)
 
 Diagnostic fields of the stress balance: viscosity on the σ grid `ησ`, depth-integrated
-viscosity `η̄H` at cell centres and `η̄Hᶠᶠ` at corners, the DIVA integral `F₂`, the drag
+viscosity `η̄H` at cell centers and `η̄Hᶠᶠ` at corners, the DIVA integral `F₂`, the drag
 coefficients `βᵘ`, `βᵛ` of the depth-averaged operator, the friction-law drag at the bed `βᵇᵘ`, `βᵇᵛ`
 (DIVA only; under SSA `βᵘ`, `βᵛ` are the bed drag) and driving stresses `τᵘ`, `τᵛ`.
 """

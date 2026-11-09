@@ -35,7 +35,7 @@ end
 function ssa_velocity_cost(x, solver, b, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ)
     fill_halo_regions!((η̄H, η̄Hᶠᶠ, βᵘ, βᵛ))
     fill!(x, 0)
-    solve!(x, solver, b, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ)
+    solve!(x, solver, b, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, FreeSlipWalls())
     return sum_of_squares(x.u) + sum_of_squares(x.v)
 end
 
@@ -54,7 +54,7 @@ function diva_velocity_cost(velocities, picard, solver, τ, η̄H, η̄Hᶠᶠ, 
         fill!(field, 0)
     end
     fill_halo_regions!((rheology.rate_factor, friction.coefficient))
-    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, N, nothing, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ)
+    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, N, nothing, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, FreeSlipWalls())
     picard_solve!(VelocityVector(u, v), picard, solver, update_diva_coefficients!, τ, coefficients...)
     fill_halo_regions!(ησ)
     compute_velocity_profile!(velocities, βᵇᵘ, βᵇᵛ, F₂, ησ, H)
@@ -149,7 +149,7 @@ function ice_cap_velocity_cost(model, H₀)
     return sum_of_squares(model.velocities.u) + sum_of_squares(model.velocities.v)
 end
 
-function centred_difference(cost, field, index, h)
+function centered_difference(cost, field, index, h)
     i, j = index
     field[i, j, 1] += h
     J⁺ = cost()
@@ -176,7 +176,7 @@ end
                  Duplicated(τ, dτ), Duplicated(H, dH), Const(s))
 
         for index in ((1, 1), (3, 5), (8, 2))
-            fd = centred_difference(() -> driving_stress_cost(τ, H, s), H, index, 1.0)
+            fd = centered_difference(() -> driving_stress_cost(τ, H, s), H, index, 1.0)
             ad = dH[index..., 1]
             @info "∂J/∂H" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
@@ -199,7 +199,7 @@ end
                  Const(constants), Duplicated(H, dH), Const(b))
 
         for index in ((7, 2), (6, 5), (7, 7))
-            fd = centred_difference(() -> grounded_fraction_cost(φ, φᵘ, φᵛ, constants, H, b), H, index, 1e-3)
+            fd = centered_difference(() -> grounded_fraction_cost(φ, φᵘ, φᵛ, constants, H, b), H, index, 1e-3)
             ad = dH[index..., 1]
             @info "∂J/∂H through φ" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
@@ -222,13 +222,13 @@ end
         cost() = velocity_cost(x, solver, b, ηH)
 
         for index in ((1, 1), (4, 6), (7, 3))
-            fd = centred_difference(cost, ηH, index, 1e-4)
+            fd = centered_difference(cost, ηH, index, 1e-4)
             ad = dηH[index..., 1]
             @info "∂J/∂ηH" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
         end
 
-        fd = centred_difference(cost, b.u, (2, 3), 1e-4)
+        fd = centered_difference(cost, b.u, (2, 3), 1e-4)
         ad = db.u[2, 3, 1]
         @info "∂J/∂bᵘ" ad fd
         @test abs(ad - fd) < 1e-6 * abs(fd)
@@ -261,7 +261,7 @@ end
                                              ("η̄Hᶠᶠ", big_coefficients[2], dη̄Hᶠᶠ, (4, 5)),
                                              ("βᵘ", big_coefficients[3], dβᵘ, (5, 3)),
                                              ("βᵛ", big_coefficients[4], dβᵛ, (2, 4)))
-            fd = centred_difference(cost, field, index, big"1e-15")
+            fd = centered_difference(cost, field, index, big"1e-15")
             ad = shadow[index..., 1]
             @info "∂J/∂$name" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
@@ -284,7 +284,7 @@ end
                                              ("A", rheology.rate_factor, dA, (6, 5)),
                                              ("C", friction.coefficient, dC, (4, 3)),
                                              ("C", friction.coefficient, dC, (7, 6)))
-            fd = centred_difference(cost, field, index, 1e-4 * field[index..., 1])
+            fd = centered_difference(cost, field, index, 1e-4 * field[index..., 1])
             ad = shadow[index..., 1]
             @info "∂J/∂$name through DIVA" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
@@ -306,7 +306,7 @@ end
                                              ("A", rheology.rate_factor, dA, (6, 5)),
                                              ("C", friction.coefficient, dC, (4, 3)),
                                              ("C", friction.coefficient, dC, (7, 6)))
-            fd = centred_difference(cost, field, index, 1e-4 * field[index..., 1])
+            fd = centered_difference(cost, field, index, 1e-4 * field[index..., 1])
             ad = shadow[index..., 1]
             @info "∂J/∂$name through converged DIVA" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
@@ -336,7 +336,7 @@ end
         for (name, field, shadow, index) in (("H", H₀, dH₀, (6, 2)),
                                              ("H", H₀, dH₀, (10, 3)),
                                              ("C", model.friction.coefficient, dC, (7, 2)))
-            fd = centred_difference(cost, field, index, 1e-4 * field[index..., 1])
+            fd = centered_difference(cost, field, index, 1e-4 * field[index..., 1])
             ad = shadow[index..., 1]
             @info "∂J/∂$name through converged SSA" index ad fd
             @test abs(ad - fd) < 1e-5 * abs(fd)
@@ -410,7 +410,7 @@ end
                                              ("H₀", H₀, dmodel.geometry.H, (10, 3)),
                                              ("C", model.friction.coefficient, dmodel.friction.coefficient, (7, 2)),
                                              ("a", model.surface_mass_balance, dmodel.surface_mass_balance, (9, 3)))
-            fd = centred_difference(cost, field, index, 1e-4 * abs(field[index..., 1]))
+            fd = centered_difference(cost, field, index, 1e-4 * abs(field[index..., 1]))
             ad = shadow[index..., 1]
             @info "∂J/∂$name through $Nt checkpointed converged time steps" index ad fd
             @test abs(ad - fd) < 1e-5 * abs(fd)
@@ -436,7 +436,7 @@ end
                                              ("m", model.basal_melt_rate, dmodel.basal_melt_rate, (9, 3)),
                                              ("u", model.velocities.u, dmodel.velocities.u, (6, 1)),
                                              ("u", model.velocities.u, dmodel.velocities.u, (11, 4)))
-            fd = centred_difference(cost, field, index, 1e-6 * abs(field[index..., 1]))
+            fd = centered_difference(cost, field, index, 1e-6 * abs(field[index..., 1]))
             ad = shadow[index..., 1]
             @info "∂J/∂$name through $Nt time steps" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
@@ -453,7 +453,7 @@ end
         @test parent(dcheckpointed.velocities.u) ≈ parent(dmodel.velocities.u) rtol = 1e-12
 
         for index in ((4, 2), (9, 3))
-            fd = centred_difference(cost, H₀, index, 1e-6 * H₀[index..., 1])
+            fd = centered_difference(cost, H₀, index, 1e-6 * H₀[index..., 1])
             ad = dcheckpointed.geometry.H[index..., 1]
             @info "∂J/∂H₀ through $Nt checkpointed time steps" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
@@ -481,7 +481,7 @@ end
         for (name, field, shadow, index) in (("H₀", H₀, dH₀, (6, 2)),
                                              ("H₀", H₀, dH₀, (10, 3)),
                                              ("C", model.friction.coefficient, dmodel.friction.coefficient, (7, 2)))
-            fd = centred_difference(cost, field, index, 1e-6 * abs(field[index..., 1]))
+            fd = centered_difference(cost, field, index, 1e-6 * abs(field[index..., 1]))
             ad = shadow[index..., 1]
             @info "∂J/∂$name through $Nt shallow-ice time steps" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
@@ -499,7 +499,7 @@ end
 
         cost() = ice_cap_velocity_cost(model, H₀)
         for index in ((4, 3), (5, 5))
-            fd = centred_difference(cost, H₀, index, 1e-4 * H₀[index..., 1])
+            fd = centered_difference(cost, H₀, index, 1e-4 * H₀[index..., 1])
             ad = dH₀[index..., 1]
             @info "∂J/∂H through the ice mask" index ad fd
             @test abs(ad - fd) < 1e-5 * abs(fd)
@@ -524,7 +524,7 @@ end
 
         cost() = ice_cap_velocity_cost(model, H₀)
         for index in ((8, 2), (9, 3), (10, 2), (12, 2))
-            fd = centred_difference(cost, H₀, index, 1e-4 * H₀[index..., 1])
+            fd = centered_difference(cost, H₀, index, 1e-4 * H₀[index..., 1])
             ad = dH₀[index..., 1]
             @info "∂J/∂H across the grounding line" index φ[index..., 1] ad fd
             @test abs(ad - fd) < 1e-4 * abs(fd)
@@ -558,7 +558,7 @@ end
                                              ("G", model.thermodynamics.geothermal_flux, dthermodynamics.geothermal_flux, (7, 2)),
                                              ("Tₛ", model.thermodynamics.surface_temperature, dthermodynamics.surface_temperature, (4, 2)),
                                              ("u", model.velocities.u, dmodel.velocities.u, (5, 1)))
-            fd = centred_difference(cost, field, index, 1e-6 * abs(field[index..., 1]))
+            fd = centered_difference(cost, field, index, 1e-6 * abs(field[index..., 1]))
             ad = shadow[index..., 1]
             @info "∂J/∂$name through $Nt energy steps" index ad fd
             @test abs(ad - fd) < 1e-5 * abs(fd)

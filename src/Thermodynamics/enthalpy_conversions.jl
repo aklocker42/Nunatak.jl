@@ -57,7 +57,7 @@ end
 
 @inline column_has_ice(i, j, H, parameters) = @inbounds H[i, j, 1] > parameters.minimum_thickness
 
-# Pressure at the centre of layer k.
+# Pressure at the center of layer k.
 @inline function layer_pressure(i, j, k, σgrid, H, constants)
     ζ = znode(1, 1, k, σgrid, Center(), Center(), Center())
     return @inbounds constants.ice_density * constants.gravitational_acceleration * H[i, j, 1] * (1 - ζ)

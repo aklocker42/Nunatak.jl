@@ -165,7 +165,7 @@ end
 end
 
 # Off-diagonal couplings at interior face k: the entry for E[k-1] in row k and for E[k] in row k-1. Advection is
-# centred, with just enough added diffusion to keep both non-positive, so the solve cannot create new extrema.
+# centered, with just enough added diffusion to keep both non-positive, so the solve cannot create new extrema.
 @inline function face_couplings(i, j, k, σgrid, E, H, W, parameters, constants)
     ζᶠ = znode(1, 1, k, σgrid, Center(), Center(), Face())
     ζ⁻ = znode(1, 1, k-1, σgrid, Center(), Center(), Center())

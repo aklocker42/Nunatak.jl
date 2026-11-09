@@ -12,7 +12,7 @@ end
 
 volume(model) = sum(Array(interior(model.geometry.H))) * model.grid.Δxᶜᵃᵃ * model.grid.Δyᵃᶜᵃ
 
-function centre_of_mass(model)
+function center_of_mass(model)
     H = Array(interior(model.geometry.H, :, :, 1))
     x = Array(xnodes(model.grid, Center()))
     return sum(x .* H) / sum(H)
@@ -46,15 +46,15 @@ end
         @test volume(model) ≈ V₀ + 16Δt * (a - m) * area rtol = 1e-13
     end
 
-    @testset "Upwind transport moves the centre of mass at the flow speed" begin
+    @testset "Upwind transport moves the center of mass at the flow speed" begin
         # Uniform flow; the bump stays far enough from the walls that no mass reaches the wall cells.
         U, L = 1e-6, 128e3
         model = transport_model(; U, L, Nx = 128, width = 2e3, velocity = (x, y) -> ifelse(0 < x < L, U, zero(x)))
-        X₀ = centre_of_mass(model)
+        X₀ = center_of_mass(model)
         Δt = 0.5 * cell_advection_timescale(model)
         @test Δt ≈ 0.5 * 1e3 / U
         run_steps!(model, Δt, 16)
-        @test centre_of_mass(model) ≈ X₀ + U * 16Δt rtol = 1e-12
+        @test center_of_mass(model) ≈ X₀ + U * 16Δt rtol = 1e-12
     end
 
     @testset "Bounded WENO keeps a compact bump non-negative without clipping" begin

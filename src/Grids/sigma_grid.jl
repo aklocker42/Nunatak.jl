@@ -1,7 +1,7 @@
 """
 $(TYPEDSIGNATURES)
 
-Return `Nσ + 1` faces of the normalised height above the bed, `ζ = 1 - σ ∈ [0, 1]`,
+Return `Nσ + 1` faces of the normalized height above the bed, `ζ = 1 - σ ∈ [0, 1]`,
 with `ζ = 0` at the bed and `ζ = 1` at the ice surface. `bed_refinement > 1` clusters
 levels towards the bed, where vertical shear and the temperate layer sit.
 
@@ -25,7 +25,7 @@ end
 $(TYPEDSIGNATURES)
 
 Return a three-dimensional grid with the horizontal coordinates of the two-dimensional
-`grid` and `Nσ` levels in the normalised height above the bed `ζ = 1 - σ ∈ [0, 1]`.
+`grid` and `Nσ` levels in the normalized height above the bed `ζ = 1 - σ ∈ [0, 1]`.
 Fields on this grid hold column quantities such as the viscosity `η(σ)` and the velocity
 `u(σ)`; the physical height is `z = b + ζ H`.
 

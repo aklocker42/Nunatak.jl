@@ -25,7 +25,7 @@ end
 function manufactured_ssa_error(N)
     grid = RectilinearGrid(arch; size = (N, N), x = (0, 1), y = (0, 1), topology = (Periodic, Periodic, Flat))
     η₀, β₀, a, b = 1, 1, 2π, 4π
-    coefficients = ssa_coefficients(grid; η̄H = η₀, β = β₀)
+    coefficients = (ssa_coefficients(grid; η̄H = η₀, β = β₀)..., FreeSlipWalls())
 
     uᵉ(x, y) = sin(a * x) * cos(b * y)
     vᵉ(x, y) = cos(a * x) * sin(b * y)
@@ -50,7 +50,7 @@ end
     Nx, Ny = 12, 10
     stretched_x = collect(range(0, 1, length = Nx + 1)) .^ 1.3
     grid = RectilinearGrid(arch; size = (Nx, Ny), x = stretched_x, y = (0, 1), topology = (Bounded, Periodic, Flat))
-    coefficients = ssa_coefficients(grid)
+    coefficients = (ssa_coefficients(grid)..., FreeSlipWalls())
 
     p = VelocityVector(grid)
     set!(p.u, (x, y) -> sin(π * x) * (cos(2π * y) + 2))
@@ -85,7 +85,7 @@ end
     β₀, U = 2, 3
     for topology in ((Periodic, Bounded, Flat), (Bounded, Periodic, Flat))
         grid = RectilinearGrid(arch; size = (Nx, Ny), x = (0, 1), y = (0, 1), topology)
-        coefficients = ssa_coefficients(grid; β = β₀)
+        coefficients = (ssa_coefficients(grid; β = β₀)..., FreeSlipWalls())
         p = VelocityVector(grid)
         along_wall = topology[1] === Periodic ? p.u : p.v
         set!(along_wall, U)
@@ -96,7 +96,7 @@ end
 
     stretched_x = collect(range(0, 1, length = Nx + 1)) .^ 1.3
     grid = RectilinearGrid(arch; size = (Nx, Ny), x = stretched_x, y = (0, 1), topology = (Bounded, Bounded, Flat))
-    coefficients = ssa_coefficients(grid)
+    coefficients = (ssa_coefficients(grid)..., FreeSlipWalls())
     p, y = VelocityVector(grid), VelocityVector(grid)
     set!(p.u, (x, y) -> sin(π * x) + y)
     set!(p.v, (x, y) -> x * y^2)
@@ -149,7 +149,7 @@ end
     Ap = apply_ssa_operator(p, coefficients)
     Ay = apply_ssa_operator(y, coefficients)
     @test dot(Ap, y) ≈ dot(p, Ay)
-    @test dot(Ap, p) > dot(p, apply_ssa_operator(p, ssa_coefficients(grid)))
+    @test dot(Ap, p) > dot(p, apply_ssa_operator(p, (ssa_coefficients(grid)..., FreeSlipWalls())))
 
     channel = RectilinearGrid(arch; size = (4, 4), x = (0, 1), y = (0, 1), topology = (Periodic, Bounded, Flat))
     σgrid = SigmaGrid(channel; Nσ = 2)
@@ -157,7 +157,7 @@ end
     set!(u, 1)
     fill_halo_regions!((u, v))
     free, noslip = CenterField(σgrid), CenterField(σgrid)
-    compute_viscosity!(free, GlenFlowLaw(channel; rate_factor = 1, exponent = 3), u, v)
+    compute_viscosity!(free, GlenFlowLaw(channel; rate_factor = 1, exponent = 3), u, v, FreeSlipWalls())
     compute_viscosity!(noslip, GlenFlowLaw(channel; rate_factor = 1, exponent = 3), u, v, NoSlipWalls())
     @test Array(interior(noslip))[:, 1, :] ≈ Array(interior(noslip))[:, 4, :]
     @test all(Array(interior(noslip))[:, 1, :] .< Array(interior(free))[:, 1, :])

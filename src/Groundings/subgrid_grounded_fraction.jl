@@ -2,9 +2,9 @@
 $(TYPEDEF)
 
 Sub-grid grounded fraction from the flotation function `f = H + ρw b / ρᵢ` (sea level at `z = 0`),
-interpolated linearly between cell centres, so `φ ∈ [0, 1]` moves continuously as the grounding
+interpolated linearly between cell centers, so `φ ∈ [0, 1]` moves continuously as the grounding
 line crosses a cell. At a velocity point `φᵘ`, `φᵛ` is the grounded part of the segment joining the
-two neighbouring centres; at a centre `φ` is the grounded part of the cell.
+two neighboring centers; at a center `φ` is the grounded part of the cell.
 Friction is scaled by the face fractions `φᵘ`, `φᵛ` and melt by `1 - φ`. The densities come from
 `IceSheetConstants`.
 """
@@ -34,7 +34,7 @@ end
 
 @inline nonzero(x) = ifelse(x == 0, one(x), x)
 
-# Eight triangles (centre, edge midpoint, corner) tile the cell; f is linear on each.
+# Eight triangles (center, edge midpoint, corner) tile the cell; f is linear on each.
 @inline function grounded_fractionᶜᶜᶜ(i, j, k, grid, H, b, ρw_ρᵢ)
     f(i′, j′) = flotation(i′, j′, k, grid, H, b, ρw_ρᵢ)
     fᶜ = f(i, j)
@@ -59,7 +59,7 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Compute the grounded fraction `φ` at cell centres and `φᵘ`, `φᵛ` at the velocity points from the
+Compute the grounded fraction `φ` at cell centers and `φᵘ`, `φᵛ` at the velocity points from the
 thickness `H` and bed `b`. `H` and `b` need filled halos. Without a grounding treatment
 (`nothing`) all ice is grounded.
 
@@ -125,7 +125,7 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Compute the effective pressure `N = max(ρ_i g H + ρ_w g min(b, 0), 0)` at cell centres, for a bed
+Compute the effective pressure `N = max(ρ_i g H + ρ_w g min(b, 0), 0)` at cell centers, for a bed
 connected to the ocean. `N` is zero at and seaward of the grounding line, so the Coulomb branch of
 `RegularizedCoulombFriction` takes friction smoothly to zero there.
 

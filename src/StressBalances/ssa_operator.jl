@@ -1,20 +1,15 @@
 """
 $(TYPEDSIGNATURES)
 
-Apply the linearised depth-integrated stress-balance operator to the velocity `p` and store
-the result in `q`,
+Apply the linearized depth-integrated stress-balance operator to the velocity `p` and store
+the result in `q`:
 
-```math
-q = - ∇ ⋅ 𝐓 + β_\\mathrm{eff} \\, p ,
-```
-
-with membrane stresses ``T_{xx} = 2 \\bar{η} H (2 ∂_x u + ∂_y v)``,
-``T_{yy} = 2 \\bar{η} H (2 ∂_y v + ∂_x u)`` at cell centres and
-``T_{xy} = \\bar{η} H (∂_y u + ∂_x v)`` at cell corners. Each row is integrated over its
+`q = - ∇ ⋅ 𝐓 + β p`, with membrane stresses `Tˣˣ = 2 η̄H (2 ∂u/∂x + ∂v/∂y)`,
+`Tʸʸ = 2 η̄H (2 ∂v/∂y + ∂u/∂x)` at cell centers and `Tˣʸ = η̄H (∂u/∂y + ∂v/∂x)` at cell corners. Each row is integrated over its
 velocity cell, so the operator is symmetric positive definite on any `RectilinearGrid`
 and the right-hand side must be area-integrated as well. SSA passes `βᵘ, βᵛ = β`;
-DIVA passes `β / (1 + β F₂)`. Of the trailing `args` only a wall condition, `FreeSlipWalls()`
-(default) or `NoSlipWalls()`, is used, so the Picard coefficient update can share the argument list.
+DIVA passes `β / (1 + β F₂)`. Of the trailing `args` only the wall condition, `FreeSlipWalls()`
+or `NoSlipWalls()`, is used and it is required, so the Picard coefficient update can share the argument list.
 
 Velocities on `Bounded` walls are impenetrable: their rows are the identity and they are
 excluded from the strain rates, so the wall values of `p` do not matter. The tangential condition
@@ -43,7 +38,7 @@ julia> p, q = VelocityVector(grid), VelocityVector(grid);
 
 julia> set!(p.u, 3); fill_halo_regions!(p);
 
-julia> ssa_operator!(q, p, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ)
+julia> ssa_operator!(q, p, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, FreeSlipWalls())
 
 julia> interior(q.u)[1, 1, 1] # rigid translation feels only the drag, 2 × 3 × (1/4)²
 0.375
@@ -58,7 +53,7 @@ end
 
 const SideWalls = Union{FreeSlipWalls, NoSlipWalls}
 
-side_walls() = FreeSlipWalls()
+side_walls() = throw(ArgumentError("the coefficients must include the side walls, FreeSlipWalls() or NoSlipWalls()"))
 side_walls(walls::SideWalls, args...) = walls
 side_walls(coefficient, args...) = side_walls(args...)
 

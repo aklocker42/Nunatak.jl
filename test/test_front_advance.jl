@@ -34,7 +34,7 @@ cpu_interior(f) = Array(interior(f, :, :, 1))
         @test all(iszero, H[Nfull + 6:end, :])
     end
 
-    @testset "Overfilled front cell spills into empty neighbours and conserves volume" begin
+    @testset "Overfilled front cell spills into empty neighbors and conserves volume" begin
         H₀, Nfull = 100, 4
         model = front_channel_model(; H₀, Nfull)
         H, μ = model.geometry.H, model.geometry.ice_mask
@@ -150,7 +150,7 @@ cpu_interior(f) = Array(interior(f, :, :, 1))
         @test all(cpu_interior(H)[Nfull + 1, :] .== H₀ / 4)
     end
 
-    @testset "Ice without inflow or ice thickness takes it from full neighbours, or fills" begin
+    @testset "Ice without inflow or ice thickness takes it from full neighbors, or fills" begin
         H₀, Nfull, a, Δt = 100, 4, 1e-3, 1e3
         model = front_channel_model(; H₀, Nfull, U = 0, surface_mass_balance = a)
         H, μ, Hʳ = model.geometry.H, model.geometry.ice_mask, model.geometry.front_thickness

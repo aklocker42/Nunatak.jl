@@ -15,7 +15,7 @@ end
 
 column(field) = Array(interior(field, 1, 1, :))
 surface_value(field) = Array(interior(field))[1, 1, 1]
-layer_centres(model) = collect(znodes(model.σgrid, Center()))
+layer_centers(model) = collect(znodes(model.σgrid, Center()))
 layer_faces(model) = collect(znodes(model.σgrid, Face()))
 
 # ρ ∫E dz per unit area of the first column.
@@ -27,7 +27,7 @@ end
 # Upward heat flux through the surface of a cold column, from the temperature of the top layer.
 function surface_heat_flux(model, H₀)
     (; parameters) = model.thermodynamics
-    ζᴺ = layer_centres(model)[end]
+    ζᴺ = layer_centers(model)[end]
     Eᴺ = column(model.thermodynamics.state.E)[end]
     Tₛ = surface_value(model.thermodynamics.surface_temperature)
     Eₛ = parameters.heat_capacity * (Tₛ - parameters.reference_temperature)
@@ -35,7 +35,7 @@ function surface_heat_flux(model, H₀)
 end
 
 # Ice divide in the middle of three cells: uniform divergence u = γ (x - x₀) balanced by accumulation there. The middle
-# column is upwind of its neighbours, so it stays exactly one dimensional. Velocities vanish at the walls.
+# column is upwind of its neighbors, so it stays exactly one dimensional. Velocities vanish at the walls.
 function divide_model(; H₀, a₀, Nσ, geothermal_flux, surface_temperature)
     grid = RectilinearGrid(arch; size = (3, 1), x = (0, 3e3), y = (0, 1e3), topology = (Bounded, Periodic, Flat))
     γ = a₀ / H₀
@@ -121,7 +121,7 @@ simpson(f, a, b; N = 4000) = (b - a) / 3N * (f(a) + f(b) + sum((isodd(n) ? 4 : 2
                 time_step!(model, 1e14)
             end
             k = model.thermodynamics.parameters.thermal_conductivity
-            exact = Tₛ .+ G .* H₀ .* (1 .- layer_centres(model)) ./ k
+            exact = Tₛ .+ G .* H₀ .* (1 .- layer_centers(model)) ./ k
             @test maximum(abs, column(model.thermodynamics.state.T) .- exact) < 1e-8
             @test surface_value(model.thermodynamics.state.Hw) == 0
         end
@@ -141,7 +141,7 @@ simpson(f, a, b; N = 4000) = (b - a) / 3N * (f(a) + f(b) + sum((isodd(n) ? 4 : 2
                 time_step!(model, t_end / Nt)
             end
             κ = k / (model.constants.ice_density * heat_capacity)
-            z = layer_centres(model) .* H₀
+            z = layer_centers(model) .* H₀
             steady = Tₛ + ΔT .+ G .* (H₀ .- z) ./ k
             transient = zero(z)
             for n in 0:200
@@ -199,7 +199,7 @@ simpson(f, a, b; N = 4000) = (b - a) / 3N * (f(a) + f(b) + sum((isodd(n) ? 4 : 2
             energy⁻ = total_energy(model)
             time_step!(model, Δt)
             q = thermal_conductivity / parameters.heat_capacity *
-                (column(state.E)[end] - parameters.heat_capacity * (Tₛ - parameters.reference_temperature)) / (H₀ * (1 - layer_centres(model)[end]))
+                (column(state.E)[end] - parameters.heat_capacity * (Tₛ - parameters.reference_temperature)) / (H₀ * (1 - layer_centers(model)[end]))
             @test abs(total_energy(model) - energy⁻ + Δt * q) < 1e-10 * abs(energy⁻)
             froze_out |= surface_value(state.Hw) == 0
         end
@@ -216,7 +216,7 @@ simpson(f, a, b; N = 4000) = (b - a) / 3N * (f(a) + f(b) + sum((isodd(n) ? 4 : 2
             time_step!(model, 1e14)
         end
         Tₒ = surface_value(model.thermodynamics.ocean_temperature)
-        exact = Tₒ .+ (Tₛ - Tₒ) .* layer_centres(model)
+        exact = Tₒ .+ (Tₛ - Tₒ) .* layer_centers(model)
         @test maximum(abs, column(model.thermodynamics.state.T) .- exact) < 1e-8
         @test surface_value(model.thermodynamics.state.mᵍ) == 0
     end
@@ -281,7 +281,7 @@ simpson(f, a, b; N = 4000) = (b - a) / 3N * (f(a) + f(b) + sum((isodd(n) ? 4 : 2
             k = parameters.thermal_conductivity
             κ = k / (model.constants.ice_density * parameters.heat_capacity)
             l² = 2H₀ * κ / a₀
-            exact = [Tₛ + G / k * simpson(z′ -> exp(-z′^2 / l²), ζ * H₀, H₀) for ζ in layer_centres(model)]
+            exact = [Tₛ + G / k * simpson(z′ -> exp(-z′^2 / l²), ζ * H₀, H₀) for ζ in layer_centers(model)]
             return maximum(abs, Array(interior(state.T, 2, 1, :)) .- exact)
         end
         @info "Robin column maximum error (K), Nσ = 10, 20, 40" errors
@@ -310,7 +310,7 @@ simpson(f, a, b; N = 4000) = (b - a) / 3N * (f(a) + f(b) + sum((isodd(n) ? 4 : 2
                 end
                 H = surface_value(model.geometry.H)
                 @test H ≈ H₀ + a₀ * t_end
-                return maximum(abs, column(state.T) .- exact.(layer_centres(model) .* H, t_end))
+                return maximum(abs, column(state.T) .- exact.(layer_centers(model) .* H, t_end))
             end
             @info "Moving-surface column maximum error (K), Nσ = 10, 20, 40" a₀ errors
             @test errors[3] < 0.03
@@ -338,7 +338,7 @@ simpson(f, a, b; N = 4000) = (b - a) / 3N * (f(a) + f(b) + sum((isodd(n) ? 4 : 2
             ρ = model.constants.ice_density
             ζᶠ = layer_faces(model)
             Δζ = reshape(diff(ζᶠ), 1, 1, :)
-            ζᴺ = layer_centres(model)[end]
+            ζᴺ = layer_centers(model)[end]
             Kᶜ = parameters.thermal_conductivity / parameters.heat_capacity
             Eₛ = parameters.heat_capacity * (Tₛ - parameters.reference_temperature)
             energy() = ρ * sum(Array(interior(model.geometry.H)) .* Δζ .* Array(interior(state.E)))

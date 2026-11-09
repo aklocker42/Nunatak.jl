@@ -3,7 +3,7 @@ using Oceananigans.Utils: launch!
 using Oceananigans.Architectures: architecture
 using Oceananigans.Operators: ℑxᶠᵃᵃ, ∂xᶠᶜᶜ
 
-# q = p + Σ ηH (p - p_neighbour): identity plus a weighted graph Laplacian, SPD on periodic grids.
+# q = p + Σ ηH (p - p_neighbor): identity plus a weighted graph Laplacian, SPD on periodic grids.
 function toy_operator!(q, p, ηH)
     grid = ηH.grid
     launch!(architecture(grid), grid, :xy, _toy_operator!, q.u, q.v, p.u, p.v, ηH)

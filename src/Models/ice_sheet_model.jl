@@ -122,7 +122,7 @@ end
 # The finite upper bound keeps the limiter's reverse-mode derivative finite; Inf gives 0 * Inf = NaN.
 default_thickness_advection(grid, stress_balance) = WENO(eltype(grid); order = 5, bounds = (zero(grid), convert(eltype(grid), 1e5)))
 
-# Centred face thickness makes the shallow-ice flux the diffusive flux of Mahaffy (1976).
+# Centered face thickness makes the shallow-ice flux the diffusive flux of Mahaffy (1976).
 default_thickness_advection(grid, ::ShallowIce) = Centered(eltype(grid); order = 2)
 
 check_advection_halo(advection, grid) = nothing

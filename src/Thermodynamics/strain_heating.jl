@@ -2,7 +2,7 @@
 $(TYPEDSIGNATURES)
 
 Compute the strain heating `Φ = τ:ε̇ = 4 η ε̇ₑ²` from the layer viscosity and the physical strain rate, without the
-regularisation `ε̇₀` of the flow law. Under SSA the strain rate is the membrane part. Velocity halos must be filled.
+regularization `ε̇₀` of the flow law. Under SSA the strain rate is the membrane part. Velocity halos must be filled.
 """
 function compute_strain_heating!(Φ, model, ::SSA)
     (; grid, σgrid) = model
@@ -51,6 +51,6 @@ end
     i, j, k = @index(Global, NTuple)
     η = @inbounds ησ[i, j, k]
     τᵇ² = ℑxᶜᵃᵃ(i, j, 1, grid, basal_stress², βᵇᵘ, uᵇ) + ℑyᵃᶜᵃ(i, j, 1, grid, basal_stress², βᵇᵛ, vᵇ)
-    shear = τᵇ² * shear_weight(k, σgrid) / layer_thickness(k, σgrid) / ifelse(iszero(η), typemax(η), η)
+    shear = τᵇ² * layer_weight(k, σgrid, 2) / layer_thickness(k, σgrid) / ifelse(iszero(η), typemax(η), η)
     @inbounds Φ[i, j, k] = 4 * η * effective_strain_rate²(i, j, 1, grid, u, v, walls) + shear
 end

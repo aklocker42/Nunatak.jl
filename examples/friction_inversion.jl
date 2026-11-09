@@ -1,6 +1,6 @@
 # Twin experiment: recover a basal friction field from noisy surface velocities, with C = C₀ exp(γ),
 # cost = velocity misfit + Tikhonov on ∇γ, Enzyme gradients through the velocity solve, and L-BFGS.
-# Writes friction_inversion_lambda*.jld2 to the current directory, one per regularisation strength.
+# Writes friction_inversion_lambda*.jld2 to the current directory, one per regularization strength.
 # Usage: julia --project=path/to/Nunatak/examples -e 'using Pkg; Pkg.instantiate()'
 #        julia --project=path/to/Nunatak/examples path/to/Nunatak/examples/friction_inversion.jl
 using Oceananigans, Nunatak, Enzyme, JLD2, Printf, Random
@@ -58,7 +58,7 @@ function misfit(model, uᵒ, vᵒ, norm)
     return J / 2norm
 end
 
-# Tikhonov ½ λ Σ |Δγ|² over neighbouring grounded cells, and its gradient.
+# Tikhonov ½ λ Σ |Δγ|² over neighboring grounded cells, and its gradient.
 function regularization!(g, γ, grounded, λ)
     Nx, Ny = size(γ)
     R = zero(eltype(γ))

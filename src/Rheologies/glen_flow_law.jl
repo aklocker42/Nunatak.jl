@@ -1,7 +1,7 @@
 """
 $(TYPEDEF)
 
-Glen's flow law `η = ½ A^(-1/n) ε̇ₑ^((1-n)/n)` with the regularised effective strain rate
+Glen's flow law `η = ½ A^(-1/n) ε̇ₑ^((1-n)/n)` with the regularized effective strain rate
 `ε̇ₑ² = ... + ε̇₀²`. The rate factor `A` is a `Field` so that gradients with respect to it exist.
 
 $(TYPEDFIELDS)
@@ -11,7 +11,7 @@ struct GlenFlowLaw{A, FT}
     rate_factor :: A
     "flow-law exponent `n`"
     exponent :: FT
-    "strain-rate regularisation `ε̇₀` (s⁻¹)"
+    "strain-rate regularization `ε̇₀` (s⁻¹)"
     strain_rate_regularization :: FT
 end
 
@@ -88,13 +88,13 @@ julia> ησ = CenterField(σgrid);
 
 julia> u, v = XFaceField(grid), YFaceField(grid);
 
-julia> compute_viscosity!(ησ, GlenFlowLaw(grid; rate_factor = 1, exponent = 1), u, v)
+julia> compute_viscosity!(ησ, GlenFlowLaw(grid; rate_factor = 1, exponent = 1), u, v, FreeSlipWalls())
 
 julia> ησ[1, 1, 1]
 0.5
 ```
 """
-function compute_viscosity!(ησ, rheology::GlenFlowLaw, u, v, walls = FreeSlipWalls())
+function compute_viscosity!(ησ, rheology::GlenFlowLaw, u, v, walls)
     grid = u.grid
     σgrid = ησ.grid
     A = rate_factor_field(rheology.rate_factor)
@@ -119,7 +119,7 @@ friction-law drag `βᵇᵘ`, `βᵇᵛ` and the basal velocities `uᵇ`, `vᵇ`
 so the shear lags one Picard iteration. Where `ησ` is still zero the shear is left out.
 All velocity and drag halos must be filled. `walls` sets the shear strain rate at the side walls.
 """
-function compute_viscosity!(ησ, rheology::GlenFlowLaw, u, v, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, walls = FreeSlipWalls())
+function compute_viscosity!(ησ, rheology::GlenFlowLaw, u, v, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, walls)
     grid = u.grid
     σgrid = ησ.grid
     A = rate_factor_field(rheology.rate_factor)

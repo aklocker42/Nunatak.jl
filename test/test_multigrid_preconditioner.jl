@@ -30,7 +30,7 @@ end
     grid = RectilinearGrid(arch; size = (32, 16), x = (0, 1), y = (0, 1), topology = (Bounded, Periodic, Flat))
     @test map(level -> size(level.grid), StressBalanceMultigridPreconditioner(grid).levels) == ((16, 8, 1), (8, 4, 1))
     odd_grid = RectilinearGrid(arch; size = (15, 8), x = (0, 1), y = (0, 1), topology = (Bounded, Periodic, Flat))
-    @test StressBalanceMultigridPreconditioner(odd_grid).levels == ()
+    @test (@test_logs (:warn, r"cannot be halved") StressBalanceMultigridPreconditioner(odd_grid)).levels == ()
 
     for topology in ((Bounded, Periodic, Flat), (Bounded, Bounded, Flat), (Periodic, Periodic, Flat))
         @testset "Transfers and symmetry on $topology" begin
@@ -48,8 +48,8 @@ end
 
             r₁, r₂ = smooth_vector(grid, 1), smooth_vector(grid, 2)
             z₁, z₂ = VelocityVector(grid), VelocityVector(grid)
-            precondition!(z₁, P, r₁, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ)
-            precondition!(z₂, P, r₂, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ)
+            precondition!(z₁, P, r₁, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, FreeSlipWalls())
+            precondition!(z₂, P, r₂, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, FreeSlipWalls())
             @test solved_dot(z₁, r₂) ≈ solved_dot(r₁, z₂) rtol = 1e-10
             @test solved_dot(z₁, r₁) > 0
         end
@@ -63,7 +63,7 @@ end
         solutions = map((StressBalanceDiagonalPreconditioner(), StressBalanceMultigridPreconditioner(model.grid))) do preconditioner
             solver = VelocityConjugateGradientSolver(ssa_operator!, model.grid; iteration_control = control, preconditioner)
             x = VelocityVector(model.grid)
-            solve!(x, solver, b, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ)
+            solve!(x, solver, b, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, FreeSlipWalls())
             return x, solver.iteration
         end
         (jacobi, jacobi_iterations), (multigrid, multigrid_iterations) = solutions

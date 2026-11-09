@@ -4,11 +4,11 @@ $(TYPEDEF)
 Calving-front advance with partially filled front cells (Albrecht et al., 2011, The Cryosphere 5, 35–44),
 as in MITgcm STREAMICE. The ice mask `μ` is a persistent 0/1 flag of full cells, and only full cells enter
 the stress balance. A cell that is not full but holds ice is a partial front cell: ice of thickness `Hʳ`
-(`geometry.front_thickness`) covers the fraction `H / Hʳ` of it. It receives thickness from full neighbours
+(`geometry.front_thickness`) covers the fraction `H / Hʳ` of it. It receives thickness from full neighbors
 flowing into it and passes none on. At the end of each time step `Hʳ` becomes the mean thickness of the full
 cells flowing in, or is kept when none does; a cell holding ice without `Hʳ` takes the mean thickness of its
-full neighbours, or its own thickness when it has none. A partial cell whose mean thickness reaches `Hʳ` becomes full with
-`H = Hʳ` and splits the excess volume equally among its empty neighbours; this repeats up to `passes` times.
+full neighbors, or its own thickness when it has none. A partial cell whose mean thickness reaches `Hʳ` becomes full with
+`H = Hʳ` and splits the excess volume equally among its empty neighbors; this repeats up to `passes` times.
 Excess left after the last pass stays in the receiving cells, so the transport conserves volume. Full cells that
 drain to `H = 0` become empty. Surface mass balance and basal melt act on full cells during the step and then,
 as in STREAMICE, on the ice of the partial cells and of the cells that filled, which empty when the melt
@@ -17,7 +17,7 @@ removes all of it.
 $(TYPEDFIELDS)
 """
 struct PartialCellFront{F}
-    "volume `O` an overfilled front cell passes to each empty neighbour (m³)"
+    "volume `O` an overfilled front cell passes to each empty neighbor (m³)"
     overflow :: F
     "maximum number of overflow passes per time step"
     passes :: Int
@@ -79,7 +79,7 @@ front_mask(masking, geometry) = nothing
 front_mask(::PartialCellFront, geometry) = geometry.ice_mask
 
 @inline full_cell(i, j, k, μ) = @inbounds μ[i, j, k] > 0
-@inline full_neighbour(i, j, k, grid, μ) = full_cell(i, j, k, μ) & !inactive_cell(i, j, k, grid)
+@inline full_neighbor(i, j, k, grid, μ) = full_cell(i, j, k, μ) & !inactive_cell(i, j, k, grid)
 @inline empty_cell(i, j, k, grid, μ, H) = !full_cell(i, j, k, μ) & (@inbounds(H[i, j, k]) ≤ 0) & !inactive_cell(i, j, k, grid)
 
 #####
@@ -140,7 +140,7 @@ advance_front!(masking, model, Δt) = nothing
 $(TYPEDSIGNATURES)
 
 Empty the full cells that drained, update the ice thickness `Hʳ` of the front cells, fill the front cells that
-reached it and pass their excess volume to empty neighbours, up to `front.passes` times, then apply the surface
+reached it and pass their excess volume to empty neighbors, up to `front.passes` times, then apply the surface
 mass balance and melt over `Δt` to the partial cells and to the cells that filled.
 """
 function advance_front!(front::PartialCellFront, model, Δt)
@@ -177,10 +177,10 @@ end
     @inbounds μ[i, j, 1] = ifelse(H[i, j, 1] ≤ 0, zero(eltype(μ)), μ[i, j, 1])
 end
 
-@inline donor_thickness(i, j, k, grid, μ, H, inflow) = ifelse(inflow & full_neighbour(i, j, k, grid, μ), @inbounds(H[i, j, k]), zero(grid))
-@inline donor_count(i, j, k, grid, μ, inflow) = ifelse(inflow & full_neighbour(i, j, k, grid, μ), 1, 0)
+@inline donor_thickness(i, j, k, grid, μ, H, inflow) = ifelse(inflow & full_neighbor(i, j, k, grid, μ), @inbounds(H[i, j, k]), zero(grid))
+@inline donor_count(i, j, k, grid, μ, inflow) = ifelse(inflow & full_neighbor(i, j, k, grid, μ), 1, 0)
 
-# Mean thickness of the full neighbours flowing in; otherwise the kept `Hʳ`, the mean of all full neighbours, or `H`.
+# Mean thickness of the full neighbors flowing in; otherwise the kept `Hʳ`, the mean of all full neighbors, or `H`.
 @kernel function _compute_reference_thickness!(Hʳ, grid, μ, H, u, v)
     i, j = @index(Global, NTuple)
     k = 1
@@ -209,7 +209,7 @@ end
 
 @inline empty_count(i, j, k, grid, μ, H) = ifelse(empty_cell(i, j, k, grid, μ, H), 1, 0)
 
-# Candidates hold ice, so they never count as empty neighbours and the writes do not race.
+# Candidates hold ice, so they never count as empty neighbors and the writes do not race.
 @kernel function _fill_front_cells!(μ, H, O, grid, Hʳ)
     i, j = @index(Global, NTuple)
     k = 1
@@ -231,7 +231,7 @@ end
 @inline spilled_thickness(i, j, k, grid, H, O) = ifelse(spill_donor(i, j, k, grid, O), @inbounds(H[i, j, k]), zero(grid))
 @inline spill_count(i, j, k, grid, O) = ifelse(spill_donor(i, j, k, grid, O), 1, 0)
 
-# Every donor counted each of its empty neighbours, so the volume an empty cell gathers is all it was given.
+# Every donor counted each of its empty neighbors, so the volume an empty cell gathers is all it was given.
 @kernel function _receive_overflow!(H, Hʳ, grid, μ, O)
     i, j = @index(Global, NTuple)
     k = 1

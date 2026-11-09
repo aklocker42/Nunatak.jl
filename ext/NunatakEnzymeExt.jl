@@ -3,7 +3,7 @@ module NunatakEnzymeExt
 using Nunatak
 using Nunatak: VelocityVector, VelocityConjugateGradientSolver, PicardIteration, Convergence
 using Nunatak: axpy!, subtract!, vector_dot!, time_steps!
-using Nunatak: update_stress_balance_coefficients!, update_diva_coefficients!
+using Nunatak: overwritten_coefficients
 using Nunatak: GlenFlowLaw, ArrheniusRateFactor
 using Nunatak.Oceananigans: prognostic_state, restore_prognostic_state!, time_step!
 using Nunatak.Oceananigans: Field
@@ -27,18 +27,18 @@ duplicated(value, a::Shadowed) = Duplicated(value, shadow(a))
 const Solver = Union{Const{<:VelocityConjugateGradientSolver}, Duplicated{<:VelocityConjugateGradientSolver},
                      MixedDuplicated{<:VelocityConjugateGradientSolver}}
 
-function copy_vector(x::VelocityVector)
-    y = similar(x)
+# Enzyme can hand over a shadow whose data arrays have lost their offsets, so shadows are copied through `parent`
+# into a `template` that has them.
+function copy_vector(x, template = x)
+    y = similar(template)
     parent(y.u) .= parent(x.u)
     parent(y.v) .= parent(x.v)
     return y
 end
 
-# Enzyme can hand over a shadow whose data arrays have lost their offsets, so shadows are only accessed through `parent`.
-function adjoint_seed(x̄, solution)
-    y = similar(solution)
-    parent(y.u) .= parent(x̄.u)
-    parent(y.v) .= parent(x̄.v)
+function zeroed(x::VelocityVector)
+    y = similar(x)
+    fill!(y, 0)
     return y
 end
 
@@ -51,14 +51,17 @@ end
 # The cells the solver updates; outer wall faces of `Bounded` grids are boundary values.
 solved_cells(f) = view(parent(f), f.grid.Hx .+ (1:f.grid.Nx), f.grid.Hy .+ (1:f.grid.Ny), :)
 
-# Later Picard iterations overwrite the coefficients, so the reverse pass needs their values at solve time.
-function copy_argument(a::Field)
+# Later Picard iterations and time steps overwrite the coefficients and the Arrhenius rate factor,
+# so the reverse pass needs their values at solve time.
+function snapshot(a::Field)
     c = similar(a)
     parent(c) .= parent(a)
     return c
 end
 
-copy_argument(a) = a
+snapshot(a) = a
+snapshot(r::GlenFlowLaw) = GlenFlowLaw(snapshot(r.rate_factor), r.exponent, r.strain_rate_regularization)
+snapshot(r::ArrheniusRateFactor) = ArrheniusRateFactor(r.parameters, snapshot(r.field))
 
 function EnzymeRules.augmented_primal(config, func::Const{typeof(solve!)}, ::Type{RT},
                                       x::Shadowed,
@@ -68,7 +71,7 @@ function EnzymeRules.augmented_primal(config, func::Const{typeof(solve!)}, ::Typ
     solve!(x.val, solver.val, b.val, map(a -> a.val, args)...)
     # The solver updates interiors only; ∂(A x)/∂p needs the halos of the solution.
     fill_halo_regions!(x.val)
-    tape = (copy_vector(x.val), map(a -> copy_argument(a.val), args))
+    tape = (copy_vector(x.val), map(a -> snapshot(a.val), args))
     primal = EnzymeRules.needs_primal(config) ? x.val : nothing
     x̄ = EnzymeRules.needs_shadow(config) ? shadow(x) : nothing
 
@@ -81,17 +84,15 @@ function EnzymeRules.reverse(config, func::Const{typeof(solve!)}, ::Type{RT}, ta
                              b, args...) where RT
 
     solution, vals = tape
-    x̄ = adjoint_seed(shadow(x), solution)
+    x̄ = copy_vector(shadow(x), solution)
 
-    λ = similar(x̄)
-    fill!(λ, 0)
+    λ = zeroed(x̄)
     adjoint_solve!(λ, solver.val, x̄, vals...)
 
     accumulate_right_hand_side_adjoint!(b, λ)
 
     q = similar(x̄)
-    q̄ = similar(x̄)
-    fill!(q̄, 0)
+    q̄ = zeroed(x̄)
     axpy!(-1, λ, q̄)
     Enzyme.autodiff(set_runtime_activity(Reverse), Const(solver.val.linear_operation!), Const,
                     Duplicated(q, q̄), Const(solution), map(duplicated, vals, args)...)
@@ -119,28 +120,16 @@ end
 
 const ConvergedPicard = Enzyme.EnzymeCore.Annotation{<:PicardIteration{<:Convergence}}
 
-# Positions in `args` of the coefficients the update overwrites; without friction the drag is left untouched.
-written_coefficients(::typeof(update_stress_balance_coefficients!), η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, args...) = (1, 2, 3, 4, 5, 6)
-written_coefficients(::typeof(update_stress_balance_coefficients!), η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, ::Nothing, args...) = (1, 2, 5, 6)
-written_coefficients(::typeof(update_diva_coefficients!), η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, args...) = (1, 2, 3, 4, 5, 6, 14, 15, 16, 17)
-written_coefficients(::typeof(update_diva_coefficients!), η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, ::Nothing, args...) = (1, 2, 3, 4, 5, 6, 16, 17)
-
 shadowed_indices(i, ::Const) = ()
 shadowed_indices(i, ::Shadowed) = (i,)
 
-state_indices(written, args) = foldl((indices, i) -> (indices..., shadowed_indices(i, args[i])...), written; init = ())
-
-# The reverse pass re-evaluates the coefficient update, so it needs the fields as they were at convergence.
-snapshot(a::Field) = copy_argument(a)
-snapshot(a) = a
-# Later time steps in the taped segment overwrite the Arrhenius rate factor.
-snapshot(r::GlenFlowLaw) = GlenFlowLaw(snapshot(r.rate_factor), r.exponent, r.strain_rate_regularization)
-snapshot(r::ArrheniusRateFactor) = ArrheniusRateFactor(r.parameters, snapshot(r.field))
-
-function zeroed(x::VelocityVector)
-    y = similar(x)
-    fill!(y, 0)
-    return y
+# Positions in `args` of the shadowed coefficients that `update!` overwrites.
+function state_indices(update!, vals, args)
+    written = overwritten_coefficients(update!, vals...)
+    return foldl(written; init = ()) do indices, c
+        i = findfirst(v -> v === c, vals)
+        return (indices..., shadowed_indices(i, args[i])...)
+    end
 end
 
 scratch_shadow(value, ::Const) = Const(value)
@@ -194,9 +183,9 @@ function EnzymeRules.reverse(config, func::Const{typeof(picard_solve!)}, ::Type{
     solver = linear_solver.val
     operation! = solver.linear_operation!
     update! = update_coefficients!.val
-    x̄ = adjoint_seed(shadow(x), solution)
+    x̄ = copy_vector(shadow(x), solution)
 
-    state = state_indices(written_coefficients(update!, vals...), args)
+    state = state_indices(update!, vals, args)
     s̄ = map(i -> copy(parent(shadow(args[i]))), state)
     sweep = map(zero, s̄)
 

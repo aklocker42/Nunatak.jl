@@ -58,7 +58,7 @@ diagnose the basal velocities `uᵇ`, `vᵇ` with the previous `βᵇ` and `F₂
 `βᵇᵘ`, `βᵇᵛ` at the bed, the viscosity `ησ` with vertical shear, its column integrals, and the
 effective drag `βᵘ`, `βᵛ` passed to `ssa_operator!`. The arguments before `βᵇᵘ` match the SSA update.
 """
-function update_diva_coefficients!(x, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, N, μ, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, walls = FreeSlipWalls())
+function update_diva_coefficients!(x, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, N, μ, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, walls)
     grid = H.grid
     fill_halo_regions!(x)
     compute_basal_velocities!(uᵇ, vᵇ, x.u, x.v, βᵇᵘ, βᵇᵛ, F₂)
@@ -73,6 +73,11 @@ function update_diva_coefficients!(x, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F�
     compute_effective_drag!(βᵘ, βᵛ, βᵇᵘ, βᵇᵛ, F₂)
     return nothing
 end
+
+overwritten_coefficients(::typeof(update_diva_coefficients!), η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, N, μ, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, args...) =
+    (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ)
+overwritten_coefficients(::typeof(update_diva_coefficients!), η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, ::Nothing, φᵘ, φᵛ, N, μ, βᵇᵘ, βᵇᵛ, uᵇ, vᵇ, args...) =
+    (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, uᵇ, vᵇ)
 
 """
 $(TYPEDSIGNATURES)

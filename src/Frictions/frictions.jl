@@ -2,7 +2,7 @@
 $(TYPEDEF)
 
 Weertman sliding law `τ_b = C |u_b|^(m-1) u_b`, evaluated with the basal velocity `u_b`.
-The speed is regularised, `|u_b|² + u₀²`, so the drag coefficient stays finite at rest.
+The speed is regularized, `|u_b|² + u₀²`, so the drag coefficient stays finite at rest.
 
 $(TYPEDFIELDS)
 """
@@ -11,7 +11,7 @@ struct WeertmanFriction{C, FT}
     coefficient :: C
     "sliding exponent `m`"
     exponent :: FT
-    "speed regularisation `u₀` (m s⁻¹)"
+    "speed regularization `u₀` (m s⁻¹)"
     velocity_regularization :: FT
 end
 
@@ -39,7 +39,7 @@ end
 """
 $(TYPEDEF)
 
-Regularised Coulomb sliding law (Schoof 2005, MISMIP+),
+Regularized Coulomb sliding law (Schoof 2005, MISMIP+),
 `τ_b = C |u_b|^m α² N / (C^(1/m) |u_b| + (α² N)^(1/m))^m · u_b / |u_b|`, which tends to
 Weertman `C |u_b|^m` for slow sliding and to Coulomb `α² N` for fast sliding. `N` is the
 effective pressure.
@@ -53,7 +53,7 @@ struct RegularizedCoulombFriction{C, FT}
     exponent :: FT
     "Coulomb coefficient `α²`"
     coulomb_coefficient :: FT
-    "speed regularisation `u₀` (m s⁻¹)"
+    "speed regularization `u₀` (m s⁻¹)"
     velocity_regularization :: FT
 end
 

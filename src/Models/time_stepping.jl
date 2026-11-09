@@ -83,7 +83,7 @@ $(TYPEDSIGNATURES)
 
 Shortest explicit-diffusion time `Δ² / D` of the shallow-ice thickness flux, used by `TimeStepWizard` with
 `diffusive_cfl`; infinite for the depth-integrated stress balances, whose flux is advective. As in Oceananigans
-this is a per-direction bound. The linearised shallow-ice diffusivity exceeds `D` and both directions add up,
+this is a per-direction bound. The linearized shallow-ice diffusivity exceeds `D` and both directions add up,
 so two-dimensional runs need a `diffusive_cfl` well below 1/2; the Halfar test uses 1/4.
 """
 cell_diffusion_timescale(model::IceSheetModel) = cell_diffusion_timescale(model, model.stress_balance)
@@ -92,7 +92,7 @@ cell_diffusion_timescale(model::IceSheetModel, stress_balance) = convert(eltype(
 function cell_diffusion_timescale(model::IceSheetModel, ::ShallowIce)
     grid = model.grid
     (; H, s) = model.geometry
-    rateˣ = KernelFunctionOperation{Face, Center, Center}(x_diffusion_rate, grid, model.velocities.u, H, s)
-    rateʸ = KernelFunctionOperation{Center, Face, Center}(y_diffusion_rate, grid, model.velocities.v, H, s)
+    rateˣ = KernelFunctionOperation{Face, Center, Center}(diffusion_rate, grid, model.velocities.u, H, s, Face(), Center())
+    rateʸ = KernelFunctionOperation{Center, Face, Center}(diffusion_rate, grid, model.velocities.v, H, s, Center(), Face())
     return 1 / max(maximum(rateˣ), maximum(rateʸ))
 end

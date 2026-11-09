@@ -7,7 +7,7 @@ function uniform_strain_viscosity(grid, uᵉ)
     set!(x.u, uᵉ)
     fill_halo_regions!(x)
     rheology = GlenFlowLaw(grid; rate_factor = 1, strain_rate_regularization = 0)
-    compute_viscosity!(ησ, rheology, x.u, x.v)
+    compute_viscosity!(ησ, rheology, x.u, x.v, FreeSlipWalls())
     return Array(interior(ησ))
 end
 
@@ -28,7 +28,7 @@ function ice_stream_error(Nx; L = 100e3, H₀ = 500, δ = 20, ρ = 917, g = 9.81
     η̄H, η̄Hᶠᶠ, F₂ = Field{Center, Center, Nothing}(grid), Field{Face, Face, Nothing}(grid), Field{Center, Center, Nothing}(grid)
     βᵘ, βᵛ = Field{Face, Center, Nothing}(grid), Field{Center, Face, Nothing}(grid)
     ησ = CenterField(σgrid)
-    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, nothing, nothing, nothing, nothing)
+    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, nothing, nothing, nothing, nothing, nothing, FreeSlipWalls())
 
     solver = VelocityConjugateGradientSolver(ssa_operator!, grid;
                                              iteration_control = Convergence(; reltol = 1e-12, maxiter = 10_000))

@@ -20,7 +20,7 @@ function slab_profile_error(Nσ; H₀ = 1000, τ₀ = 1e4, A = 1e-21, C = 1e10)
 
     rheology = GlenFlowLaw(grid; rate_factor = A, strain_rate_regularization = 1e-16)
     friction = WeertmanFriction(grid; coefficient = C, exponent = 1)
-    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, nothing, nothing, βᵇᵘ, βᵇᵛ, velocities.uᵇ, velocities.vᵇ)
+    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, nothing, nothing, βᵇᵘ, βᵇᵛ, velocities.uᵇ, velocities.vᵇ, FreeSlipWalls())
 
     solver = VelocityConjugateGradientSolver(ssa_operator!, grid; iteration_control = Convergence(; reltol = 1e-12, maxiter = 100))
     picard = PicardIteration(grid; iteration_control = Convergence(; reltol = 1e-12, maxiter = 300))

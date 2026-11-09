@@ -6,7 +6,7 @@ Shallow-ice approximation (SIA): the velocity follows locally from the surface s
 `u(ζ) = uᵇ - 2 (ρᵢ g)ⁿ Hⁿ⁺¹ |∇s|ⁿ⁻¹ ∂s/∂x ∫₀^ζ A (1 - ζ′)ⁿ dζ′`,
 
 evaluated at the velocity points with the face-averaged thickness and rate factor, the slope across the face
-averaged from the four neighbouring differences. With `WeertmanFriction` the sliding velocity `uᵇ` balances
+averaged from the four neighboring differences. With `WeertmanFriction` the sliding velocity `uᵇ` balances
 the driving stress, `C |uᵇ|ᵐ = ρᵢ g H |∇s|`; without friction, and at faces where `C = 0`, the bed is frozen. Floating ice is held still
 through the grounded fractions `φᵘ`, `φᵛ`. The default thickness advection is then `Centered(order = 2)`,
 so the thickness flux is the diffusive flux `-D ∇s` of Mahaffy (1976).
@@ -44,8 +44,10 @@ $(TYPEDSIGNATURES)
 ```jldoctest
 julia> using Oceananigans, Nunatak
 
-julia> ShallowIceSolver(schedule = IterationInterval(4)).schedule
-IterationInterval(4, 0)
+julia> solver = ShallowIceSolver(schedule = IterationInterval(4));
+
+julia> summary(solver)
+"ShallowIceSolver(schedule = IterationInterval(4))"
 ```
 """
 ShallowIceSolver(; schedule = IterationInterval(1)) = ShallowIceSolver(schedule)
@@ -54,8 +56,7 @@ Base.summary(solver::ShallowIceSolver) = string("ShallowIceSolver(schedule = ", 
 
 default_velocity_solver(grid, ::Nothing, stress_balance) = nothing
 default_velocity_solver(grid, rheology, stress_balance) = StressBalanceSolver(grid)
-default_velocity_solver(grid, ::Nothing, ::ShallowIce) = nothing
-default_velocity_solver(grid, rheology, ::ShallowIce) = ShallowIceSolver()
+default_velocity_solver(grid, ::GlenFlowLaw, ::ShallowIce) = ShallowIceSolver()
 
 validate_stress_balance(stress_balance, rheology, friction) = nothing
 validate_stress_balance(::ShallowIce, ::Union{Nothing, GlenFlowLaw}, ::Union{Nothing, WeertmanFriction}) = nothing
@@ -77,98 +78,47 @@ validate_velocity_solver(stress_balance, ::ShallowIceSolver) =
 end
 
 #####
-##### Column integrals of the flow law
-#####
-
-# Exact integral of (1 - ζ)ⁿ from the bed to the centre of layer k, split into full layers below and the lower half of k.
-@inline function glen_profile_weight(k′, k, σgrid, n)
-    ζ⁻ = znode(1, 1, k′, σgrid, Center(), Center(), Face())
-    ζ⁺ = ifelse(k′ == k, znode(1, 1, k, σgrid, Center(), Center(), Center()),
-                          znode(1, 1, k′+1, σgrid, Center(), Center(), Face()))
-    return ((1 - ζ⁻)^(n + 1) - (1 - ζ⁺)^(n + 1)) / (n + 1)
-end
-
-# Exact integral of (1 - ζ)ⁿ⁺¹ over layer k: the layer's share of the depth average of ∫₀^ζ (1 - ζ′)ⁿ dζ′.
-@inline function glen_mean_weight(k, σgrid, n)
-    ζ⁻ = znode(1, 1, k,   σgrid, Center(), Center(), Face())
-    ζ⁺ = znode(1, 1, k+1, σgrid, Center(), Center(), Face())
-    return ((1 - ζ⁻)^(n + 2) - (1 - ζ⁺)^(n + 2)) / (n + 2)
-end
-
-@inline x_face_rate_factor(i, j, k, A, structure) = (rate_factor(i-1, j, k, A, structure) + rate_factor(i, j, k, A, structure)) / 2
-@inline y_face_rate_factor(i, j, k, A, structure) = (rate_factor(i, j-1, k, A, structure) + rate_factor(i, j, k, A, structure)) / 2
-
-@inline function profile_integral(face_rate_factor, i, j, k, σgrid, A, structure, n)
-    I = zero(n)
-    for k′ in 1:k
-        I += face_rate_factor(i, j, k′, A, structure) * glen_profile_weight(k′, k, σgrid, n)
-    end
-    return I
-end
-
-@inline function mean_integral(face_rate_factor, i, j, σgrid, A, structure, n)
-    I = zero(n)
-    for k in 1:size(σgrid, 3)
-        I += face_rate_factor(i, j, k, A, structure) * glen_mean_weight(k, σgrid, n)
-    end
-    return I
-end
-
-#####
 ##### Face geometry, deformation and sliding
 #####
 
-# Thickness, slope along and squared slope at a velocity point.
-@inline function x_face_slope(i, j, grid, H, s)
-    Hᶠ = ℑxᶠᵃᵃ(i, j, 1, grid, H)
+@inline face_rate_factor(i, j, k, A, structure, ::Face, ::Center) = (rate_factor(i-1, j, k, A, structure) + rate_factor(i, j, k, A, structure)) / 2
+@inline face_rate_factor(i, j, k, A, structure, ::Center, ::Face) = (rate_factor(i, j-1, k, A, structure) + rate_factor(i, j, k, A, structure)) / 2
+
+@inline face_value(i, j, grid, ϕ, ::Face, ::Center) = ℑxᶠᵃᵃ(i, j, 1, grid, ϕ)
+@inline face_value(i, j, grid, ϕ, ::Center, ::Face) = ℑyᵃᶠᵃ(i, j, 1, grid, ϕ)
+
+@inline face_spacing(i, j, grid, ::Face, ::Center) = Δxᶠᶜᶜ(i, j, 1, grid)
+@inline face_spacing(i, j, grid, ::Center, ::Face) = Δyᶜᶠᶜ(i, j, 1, grid)
+
+# Surface slope normal to the face and the squared slope with the tangential component averaged onto the face.
+@inline function face_slope(i, j, grid, s, ::Face, ::Center)
     ∂s = ∂xᶠᶜᶜ(i, j, 1, grid, s)
-    ∂s⊥ = ℑxyᶠᶜᵃ(i, j, 1, grid, ∂yᶜᶠᶜ, s)
-    return Hᶠ, ∂s, ∂s^2 + ∂s⊥^2
+    return ∂s, ∂s^2 + ℑxyᶠᶜᵃ(i, j, 1, grid, ∂yᶜᶠᶜ, s)^2
 end
 
-@inline function y_face_slope(i, j, grid, H, s)
-    Hᶠ = ℑyᵃᶠᵃ(i, j, 1, grid, H)
+@inline function face_slope(i, j, grid, s, ::Center, ::Face)
     ∂s = ∂yᶜᶠᶜ(i, j, 1, grid, s)
-    ∂s⊥ = ℑxyᶜᶠᵃ(i, j, 1, grid, ∂xᶠᶜᶜ, s)
-    return Hᶠ, ∂s, ∂s^2 + ∂s⊥^2
+    return ∂s, ∂s^2 + ℑxyᶜᶠᵃ(i, j, 1, grid, ∂xᶠᶜᶜ, s)^2
 end
 
 # Deformation velocity per unit slope and per unit rate-factor integral, 2 (ρᵢ g)ⁿ Hⁿ⁺¹ |∇s|ⁿ⁻¹.
 @inline deformation_coefficient(Hᶠ, S², n, ρᵢg) = 2 * ρᵢg^n * Hᶠ^(n + 1) * safe_power(S², (n - 1) / 2)
 
 # Sliding velocity per unit slope: |uᵇ| = (ρᵢ g H |∇s| / C)^(1/m), directed down the slope; no sliding where C = 0.
-@inline sliding_coefficient(Cᶠ, Hᶠ, S², ρᵢg, ::Nothing) = zero(Hᶠ)
+@inline sliding_coefficient(i, j, grid, Hᶠ, S², ρᵢg, ::Nothing, ℓx, ℓy) = zero(Hᶠ)
 
-@inline function sliding_coefficient(Cᶠ, Hᶠ, S², ρᵢg, friction::WeertmanFriction)
+@inline function sliding_coefficient(i, j, grid, Hᶠ, S², ρᵢg, friction::WeertmanFriction, ℓx, ℓy)
+    Cᶠ = face_value(i, j, grid, friction.coefficient, ℓx, ℓy)
     p = 1 / friction.exponent
     C⁺ = ifelse(Cᶠ > 0, Cᶠ, one(Cᶠ))
     uᵇ = safe_power(ρᵢg * Hᶠ / C⁺, p) * safe_power(S², (p - 1) / 2)
     return ifelse(Cᶠ > 0, uᵇ, zero(uᵇ))
 end
 
-@inline x_friction_coefficient(i, j, grid, ::Nothing) = zero(grid)
-@inline x_friction_coefficient(i, j, grid, friction) = ℑxᶠᵃᵃ(i, j, 1, grid, friction.coefficient)
-@inline y_friction_coefficient(i, j, grid, ::Nothing) = zero(grid)
-@inline y_friction_coefficient(i, j, grid, friction) = ℑyᵃᶠᵃ(i, j, 1, grid, friction.coefficient)
-
-@inline function x_sliding_velocity(i, j, grid, Hᶠ, ∂s, S², φᵘ, friction, ρᵢg)
-    uᵇ = - @inbounds(φᵘ[i, j, 1]) * sliding_coefficient(x_friction_coefficient(i, j, grid, friction), Hᶠ, S², ρᵢg, friction) * ∂s
-    return ifelse(peripheral_node(i, j, 1, grid, Face(), Center(), Center()), zero(uᵇ), uᵇ)
-end
-
-@inline function y_sliding_velocity(i, j, grid, Hᶠ, ∂s, S², φᵛ, friction, ρᵢg)
-    vᵇ = - @inbounds(φᵛ[i, j, 1]) * sliding_coefficient(y_friction_coefficient(i, j, grid, friction), Hᶠ, S², ρᵢg, friction) * ∂s
-    return ifelse(peripheral_node(i, j, 1, grid, Center(), Face(), Center()), zero(vᵇ), vᵇ)
-end
-
-@inline function x_deformation_velocity(i, j, grid, Hᶠ, ∂s, S², φᵘ, n, ρᵢg, I)
-    u = - @inbounds(φᵘ[i, j, 1]) * deformation_coefficient(Hᶠ, S², n, ρᵢg) * I * ∂s
-    return ifelse(peripheral_node(i, j, 1, grid, Face(), Center(), Center()), zero(u), u)
-end
-
-@inline function y_deformation_velocity(i, j, grid, Hᶠ, ∂s, S², φᵛ, n, ρᵢg, I)
-    v = - @inbounds(φᵛ[i, j, 1]) * deformation_coefficient(Hᶠ, S², n, ρᵢg) * I * ∂s
-    return ifelse(peripheral_node(i, j, 1, grid, Center(), Face(), Center()), zero(v), v)
+# Velocity down the slope at a floating-masked face, zero on walls.
+@inline function face_velocity(i, j, grid, φ, coefficient, ∂s, ℓx, ℓy)
+    u = - @inbounds(φ[i, j, 1]) * coefficient * ∂s
+    return ifelse(peripheral_node(i, j, 1, grid, ℓx, ℓy, Center()), zero(u), u)
 end
 
 """
@@ -185,45 +135,31 @@ function compute_shallow_ice_velocities!(velocities, H, s, φᵘ, φᵛ, rheolog
     A = rate_factor_field(rheology.rate_factor)
     structure = depth_structure(A)
     n = rheology.exponent
-    launch!(arch, grid, size(u), _compute_x_shallow_ice_velocity!, u, uᵇ, grid, σgrid, H, s, φᵘ, A, structure, n, friction, ρᵢg)
-    launch!(arch, grid, size(v), _compute_y_shallow_ice_velocity!, v, vᵇ, grid, σgrid, H, s, φᵛ, A, structure, n, friction, ρᵢg)
-    launch!(arch, σgrid, size(uσ), _compute_x_shallow_ice_profile!, uσ, grid, σgrid, H, s, φᵘ, A, structure, n, friction, ρᵢg)
-    launch!(arch, σgrid, size(vσ), _compute_y_shallow_ice_profile!, vσ, grid, σgrid, H, s, φᵛ, A, structure, n, friction, ρᵢg)
+    launch!(arch, grid, size(u), _compute_shallow_ice_velocity!, u, uᵇ, grid, σgrid, H, s, φᵘ, A, structure, n, friction, ρᵢg, Face(), Center())
+    launch!(arch, grid, size(v), _compute_shallow_ice_velocity!, v, vᵇ, grid, σgrid, H, s, φᵛ, A, structure, n, friction, ρᵢg, Center(), Face())
+    launch!(arch, σgrid, size(uσ), _compute_shallow_ice_profile!, uσ, grid, σgrid, H, s, φᵘ, A, structure, n, friction, ρᵢg, Face(), Center())
+    launch!(arch, σgrid, size(vσ), _compute_shallow_ice_profile!, vσ, grid, σgrid, H, s, φᵛ, A, structure, n, friction, ρᵢg, Center(), Face())
     return nothing
 end
 
-@kernel function _compute_x_shallow_ice_velocity!(u, uᵇ, grid, σgrid, H, s, φᵘ, A, structure, n, friction, ρᵢg)
+# The depth average of ∫₀^ζ A (1 - ζ′)ⁿ dζ′ is ∫₀¹ A (1 - ζ)ⁿ⁺¹ dζ.
+@kernel function _compute_shallow_ice_velocity!(u, uᵇ, grid, σgrid, H, s, φ, A, structure, n, friction, ρᵢg, ℓx, ℓy)
     i, j = @index(Global, NTuple)
-    Hᶠ, ∂s, S² = x_face_slope(i, j, grid, H, s)
-    u₀ = x_sliding_velocity(i, j, grid, Hᶠ, ∂s, S², φᵘ, friction, ρᵢg)
-    I = mean_integral(x_face_rate_factor, i, j, σgrid, A, structure, n)
+    Hᶠ = face_value(i, j, grid, H, ℓx, ℓy)
+    ∂s, S² = face_slope(i, j, grid, s, ℓx, ℓy)
+    I = column_integral(face_rate_factor, i, j, σgrid, n + 1, A, structure, ℓx, ℓy)
+    u₀ = face_velocity(i, j, grid, φ, sliding_coefficient(i, j, grid, Hᶠ, S², ρᵢg, friction, ℓx, ℓy), ∂s, ℓx, ℓy)
     @inbounds uᵇ[i, j, 1] = u₀
-    @inbounds u[i, j, 1] = u₀ + x_deformation_velocity(i, j, grid, Hᶠ, ∂s, S², φᵘ, n, ρᵢg, I)
+    @inbounds u[i, j, 1] = u₀ + face_velocity(i, j, grid, φ, deformation_coefficient(Hᶠ, S², n, ρᵢg) * I, ∂s, ℓx, ℓy)
 end
 
-@kernel function _compute_y_shallow_ice_velocity!(v, vᵇ, grid, σgrid, H, s, φᵛ, A, structure, n, friction, ρᵢg)
-    i, j = @index(Global, NTuple)
-    Hᶠ, ∂s, S² = y_face_slope(i, j, grid, H, s)
-    v₀ = y_sliding_velocity(i, j, grid, Hᶠ, ∂s, S², φᵛ, friction, ρᵢg)
-    I = mean_integral(y_face_rate_factor, i, j, σgrid, A, structure, n)
-    @inbounds vᵇ[i, j, 1] = v₀
-    @inbounds v[i, j, 1] = v₀ + y_deformation_velocity(i, j, grid, Hᶠ, ∂s, S², φᵛ, n, ρᵢg, I)
-end
-
-@kernel function _compute_x_shallow_ice_profile!(uσ, grid, σgrid, H, s, φᵘ, A, structure, n, friction, ρᵢg)
+@kernel function _compute_shallow_ice_profile!(uσ, grid, σgrid, H, s, φ, A, structure, n, friction, ρᵢg, ℓx, ℓy)
     i, j, k = @index(Global, NTuple)
-    Hᶠ, ∂s, S² = x_face_slope(i, j, grid, H, s)
-    I = profile_integral(x_face_rate_factor, i, j, k, σgrid, A, structure, n)
-    @inbounds uσ[i, j, k] = x_sliding_velocity(i, j, grid, Hᶠ, ∂s, S², φᵘ, friction, ρᵢg) +
-                            x_deformation_velocity(i, j, grid, Hᶠ, ∂s, S², φᵘ, n, ρᵢg, I)
-end
-
-@kernel function _compute_y_shallow_ice_profile!(vσ, grid, σgrid, H, s, φᵛ, A, structure, n, friction, ρᵢg)
-    i, j, k = @index(Global, NTuple)
-    Hᶠ, ∂s, S² = y_face_slope(i, j, grid, H, s)
-    I = profile_integral(y_face_rate_factor, i, j, k, σgrid, A, structure, n)
-    @inbounds vσ[i, j, k] = y_sliding_velocity(i, j, grid, Hᶠ, ∂s, S², φᵛ, friction, ρᵢg) +
-                            y_deformation_velocity(i, j, grid, Hᶠ, ∂s, S², φᵛ, n, ρᵢg, I)
+    Hᶠ = face_value(i, j, grid, H, ℓx, ℓy)
+    ∂s, S² = face_slope(i, j, grid, s, ℓx, ℓy)
+    I = profile_integral(face_rate_factor, i, j, k, σgrid, n, A, structure, ℓx, ℓy)
+    coefficient = sliding_coefficient(i, j, grid, Hᶠ, S², ρᵢg, friction, ℓx, ℓy) + deformation_coefficient(Hᶠ, S², n, ρᵢg) * I
+    @inbounds uσ[i, j, k] = face_velocity(i, j, grid, φ, coefficient, ∂s, ℓx, ℓy)
 end
 
 #####
@@ -231,29 +167,24 @@ end
 #####
 
 # Thickness diffusivity over the cell area, D / Δ², with D = |ū| H / |∂s| the diffusivity of the face flux.
-@inline function x_diffusion_rate(i, j, k, grid, u, H, s)
-    Hᶠ, ∂s, _ = x_face_slope(i, j, grid, H, s)
+@inline function diffusion_rate(i, j, k, grid, u, H, s, ℓx, ℓy)
+    Hᶠ = face_value(i, j, grid, H, ℓx, ℓy)
+    ∂s, _ = face_slope(i, j, grid, s, ℓx, ℓy)
     D = @inbounds abs(u[i, j, 1]) * Hᶠ / ifelse(∂s == 0, one(∂s), abs(∂s))
-    return ifelse(∂s == 0, zero(D), D) / Δxᶠᶜᶜ(i, j, 1, grid)^2
-end
-
-@inline function y_diffusion_rate(i, j, k, grid, v, H, s)
-    Hᶠ, ∂s, _ = y_face_slope(i, j, grid, H, s)
-    D = @inbounds abs(v[i, j, 1]) * Hᶠ / ifelse(∂s == 0, one(∂s), abs(∂s))
-    return ifelse(∂s == 0, zero(D), D) / Δyᶜᶠᶜ(i, j, 1, grid)^2
+    return ifelse(∂s == 0, zero(D), D) / face_spacing(i, j, grid, ℓx, ℓy)^2
 end
 
 #####
 ##### Strain heating
 #####
 
-# Squared slope at a cell centre: mean of the squared face slopes, wall faces excluded.
-@inline function cell_slope²(i, j, grid, s)
-    w⁻ = !peripheral_node(i,   j, 1, grid, Face(), Center(), Center())
-    w⁺ = !peripheral_node(i+1, j, 1, grid, Face(), Center(), Center())
+# Squared slope at a cell center: mean of the squared face slopes, faces on walls or next to ice-free cells excluded.
+@inline function cell_slope²(i, j, grid, H, s)
+    w⁻ = @inbounds !peripheral_node(i,   j, 1, grid, Face(), Center(), Center()) & (H[i-1, j, 1] > 0)
+    w⁺ = @inbounds !peripheral_node(i+1, j, 1, grid, Face(), Center(), Center()) & (H[i+1, j, 1] > 0)
     Sˣ = (w⁻ * ∂xᶠᶜᶜ(i, j, 1, grid, s)^2 + w⁺ * ∂xᶠᶜᶜ(i+1, j, 1, grid, s)^2) / max(w⁻ + w⁺, 1)
-    w⁻ = !peripheral_node(i, j,   1, grid, Center(), Face(), Center())
-    w⁺ = !peripheral_node(i, j+1, 1, grid, Center(), Face(), Center())
+    w⁻ = @inbounds !peripheral_node(i, j,   1, grid, Center(), Face(), Center()) & (H[i, j-1, 1] > 0)
+    w⁺ = @inbounds !peripheral_node(i, j+1, 1, grid, Center(), Face(), Center()) & (H[i, j+1, 1] > 0)
     Sʸ = (w⁻ * ∂yᶜᶠᶜ(i, j, 1, grid, s)^2 + w⁺ * ∂yᶜᶠᶜ(i, j+1, 1, grid, s)^2) / max(w⁻ + w⁺, 1)
     return Sˣ + Sʸ
 end
@@ -261,8 +192,8 @@ end
 # Layer mean of 2 A τₑⁿ⁺¹ with τₑ = ρᵢ g H (1 - ζ) |∇s|; the factor (1 - ζ)ⁿ⁺¹ is averaged exactly over the layer.
 @kernel function _compute_shallow_ice_heating!(Φ, grid, σgrid, H, s, φ, A, structure, n, ρᵢg)
     i, j, k = @index(Global, NTuple)
-    S² = cell_slope²(i, j, grid, s)
+    S² = cell_slope²(i, j, grid, H, s)
     τ = @inbounds ρᵢg * H[i, j, 1]
-    weight = glen_mean_weight(k, σgrid, n) / layer_thickness(k, σgrid)
+    weight = layer_weight(k, σgrid, n + 1) / layer_thickness(k, σgrid)
     @inbounds Φ[i, j, k] = φ[i, j, 1] * 2 * rate_factor(i, j, k, A, structure) * τ^(n + 1) * safe_power(S², (n + 1) / 2) * weight
 end

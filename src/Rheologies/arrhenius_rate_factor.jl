@@ -18,7 +18,7 @@ struct ArrheniusParameters{FT}
     warm_activation_energy :: FT
     "pressure-adjusted temperature that separates the branches (K)"
     transition_temperature :: FT
-    "width of the blend between the branches, centred on `transition_temperature` (K)"
+    "width of the blend between the branches, centered on `transition_temperature` (K)"
     transition_width :: FT
     "ideal gas constant `R` (J mol⁻¹ K⁻¹)"
     gas_constant :: FT

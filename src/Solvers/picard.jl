@@ -40,7 +40,7 @@ PicardIteration(grid; iteration_control = FixedIterations(10), adjoint_iteration
 $(TYPEDSIGNATURES)
 
 Run Picard iterations: `update_coefficients!(x, args...)` freezes the coefficients at `x`,
-then `solve!(x, linear_solver, b, args...)` solves the linearised problem. Returns the number
+then `solve!(x, linear_solver, b, args...)` solves the linearized problem. Returns the number
 of Picard iterations taken.
 """
 function picard_solve!(x, picard::PicardIteration{<:FixedIterations}, linear_solver, update_coefficients!, b, args...)

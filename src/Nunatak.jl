@@ -30,7 +30,7 @@ using Oceananigans.Grids: AbstractGrid, RectilinearGrid, Flat, Bounded, Periodic
                           cpu_face_constructor_x, cpu_face_constructor_y, pop_flat_elements, peripheral_node, inactive_cell
 using Oceananigans.Solvers: BatchedTridiagonalSolver
 using Oceananigans.Operators: δxᶠᶜᶜ, δyᶠᶜᶜ, δxᶜᶠᶜ, δyᶜᶠᶜ, ∂xᶜᶜᶜ, ∂yᶜᶜᶜ, ∂xᶠᶠᶜ, ∂yᶠᶠᶜ, ∂xᶠᶜᶜ, ∂yᶜᶠᶜ,
-                              Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δxᶠᶜᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ, Δyᶜᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Azᶠᶜᶜ, Azᶜᶠᶜ, Azᶜᶜᶜ, Axᶠᶜᶜ, Ayᶜᶠᶜ, Vᶜᶜᶜ, δxᶜᵃᵃ, δyᵃᶜᵃ,
+                              Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δxᶠᶜᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ, Δyᶜᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Az, Azᶠᶜᶜ, Azᶜᶠᶜ, Azᶜᶜᶜ, Axᶠᶜᶜ, Ayᶜᶠᶜ, Vᶜᶜᶜ, δxᶜᵃᵃ, δyᵃᶜᵃ,
                               ℑxᶠᵃᵃ, ℑyᵃᶠᵃ, ℑxᶜᵃᵃ, ℑyᵃᶜᵃ, ℑxyᶜᶜᵃ, ℑxyᶠᶠᵃ, ℑxyᶠᶜᵃ, ℑxyᶜᶠᵃ
 using Oceananigans.TimeSteppers: TimeStepper, Clock, SplitRungeKuttaTimeStepper
 using Oceananigans.Utils: launch!, prettysummary

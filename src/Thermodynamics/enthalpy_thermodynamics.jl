@@ -1,7 +1,7 @@
 """
 $(TYPEDEF)
 
-Material constants and regularisation widths of the enthalpy formulation, passed to the kernels.
+Material constants and regularization widths of the enthalpy formulation, passed to the kernels.
 Defaults follow PISM `pism_config.cdl` and Table A1 of Kleiner et al. (2015, The Cryosphere 9).
 
 $(TYPEDFIELDS)

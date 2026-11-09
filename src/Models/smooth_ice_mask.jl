@@ -55,7 +55,7 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Compute the ice mask `μ` at cell centres from the thickness `H`.
+Compute the ice mask `μ` at cell centers from the thickness `H`.
 """
 function compute_ice_mask!(μ, masking, H)
     grid = H.grid

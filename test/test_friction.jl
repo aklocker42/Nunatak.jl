@@ -30,7 +30,7 @@ function sliding_slab_speed(friction, τ₀, N₀)
 
     η̄H, η̄Hᶠᶠ, F₂ = Field{Center, Center, Nothing}(grid), Field{Face, Face, Nothing}(grid), Field{Center, Center, Nothing}(grid)
     βᵘ, βᵛ = Field{Face, Center, Nothing}(grid), Field{Center, Face, Nothing}(grid)
-    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, CenterField(σgrid), F₂, H, GlenFlowLaw(grid; rate_factor = 1e-24), friction, φᵘ, φᵛ, N)
+    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, CenterField(σgrid), F₂, H, GlenFlowLaw(grid; rate_factor = 1e-24), friction, φᵘ, φᵛ, N, nothing, FreeSlipWalls())
 
     solver = VelocityConjugateGradientSolver(ssa_operator!, grid; iteration_control = Convergence(; reltol = 1e-13, maxiter = 100))
     picard = PicardIteration(grid; iteration_control = Convergence(; reltol = 1e-12, maxiter = 300))
@@ -94,7 +94,7 @@ end
     end
 
     contrast_grid = RectilinearGrid(arch; size = (48, 32), x = (0, 1), y = (0, 1), topology = (Bounded, Periodic, Flat))
-    coefficients = ssa_coefficients(contrast_grid; η̄H = (x, y) -> 1 + 1e3 * x^4, β = (x, y) -> 1e4 * exp(-20x))
+    coefficients = (ssa_coefficients(contrast_grid; η̄H = (x, y) -> 1 + 1e3 * x^4, β = (x, y) -> 1e4 * exp(-20x))..., FreeSlipWalls())
     b = VelocityVector(contrast_grid)
     set!(b.u, (x, y) -> sin(π * x) * cos(2π * y))
     set!(b.v, (x, y) -> x * sin(2π * y))

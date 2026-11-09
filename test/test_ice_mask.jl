@@ -40,7 +40,7 @@ end
         grid = RectilinearGrid(arch; size = (Nx, Ny), x = (0, 1), y = (0, 1), topology = (Bounded, Periodic, Flat))
         ice(x, y) = ifelse(x < 0.5, one(x), zero(x))
         η̄H, η̄Hᶠᶠ, βᵘ, βᵛ = ssa_coefficients(grid; η̄H = (x, y) -> ice(x, y) * (1 + x^2))
-        coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ)
+        coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, FreeSlipWalls())
 
         p, y = VelocityVector(grid), VelocityVector(grid)
         set!(p.u, (x, y) -> sin(π * x) + y)
@@ -73,7 +73,7 @@ end
             @test all(isfinite, u) && all(isfinite, v)
             @test all(iszero, u[u_free]) && all(iszero, v[v_free])
             @test maximum(abs, u) > 0
-            # The dome spreads radially, so the velocity is antisymmetric about the centre line.
+            # The dome spreads radially, so the velocity is antisymmetric about the center line.
             @test u ≈ -reverse(u, dims = 1) rtol = 1e-6
         end
     end

@@ -28,7 +28,7 @@ function depth_varying_slab_error(Nσ; H₀ = 1000, τ₀ = 1e4, A₀ = 1e-21, C
     set!(A, (x, y, ζ) -> A₀ * (1 + 3 * (1 - ζ)))
     rheology = GlenFlowLaw(grid; rate_factor = A, strain_rate_regularization = 1e-16)
     friction = WeertmanFriction(grid; coefficient = C, exponent = 1)
-    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, nothing, nothing, βᵇᵘ, βᵇᵛ, velocities.uᵇ, velocities.vᵇ)
+    coefficients = (η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, nothing, nothing, βᵇᵘ, βᵇᵛ, velocities.uᵇ, velocities.vᵇ, FreeSlipWalls())
 
     solver = VelocityConjugateGradientSolver(ssa_operator!, grid; iteration_control = Convergence(; reltol = 1e-12, maxiter = 100))
     picard = PicardIteration(grid; iteration_control = Convergence(; reltol = 1e-12, maxiter = 300))
@@ -105,12 +105,12 @@ sloped_thickness(x, y) = 1000 + x / 1e2
         three_dimensional = GlenFlowLaw(grid; rate_factor = A³ᴰ)
 
         η², η³ = CenterField(σgrid), CenterField(σgrid)
-        compute_viscosity!(η², two_dimensional, u, v)
-        compute_viscosity!(η³, three_dimensional, u, v)
+        compute_viscosity!(η², two_dimensional, u, v, FreeSlipWalls())
+        compute_viscosity!(η³, three_dimensional, u, v, FreeSlipWalls())
         @test interior_array(η²) == interior_array(η³)
 
-        compute_viscosity!(η², two_dimensional, u, v, βᵘ, βᵛ, uᵇ, vᵇ)
-        compute_viscosity!(η³, three_dimensional, u, v, βᵘ, βᵛ, uᵇ, vᵇ)
+        compute_viscosity!(η², two_dimensional, u, v, βᵘ, βᵛ, uᵇ, vᵇ, FreeSlipWalls())
+        compute_viscosity!(η³, three_dimensional, u, v, βᵘ, βᵛ, uᵇ, vᵇ, FreeSlipWalls())
         @test interior_array(η²) == interior_array(η³)
     end
 
@@ -125,8 +125,8 @@ sloped_thickness(x, y) = 1000 + x / 1e2
         set!(A, (x, y, ζ) -> A₀ * (1 + 7ζ))
 
         η₀, η = CenterField(σgrid), CenterField(σgrid)
-        compute_viscosity!(η₀, GlenFlowLaw(grid; rate_factor = A₀), u, v)
-        compute_viscosity!(η, GlenFlowLaw(grid; rate_factor = A), u, v)
+        compute_viscosity!(η₀, GlenFlowLaw(grid; rate_factor = A₀), u, v, FreeSlipWalls())
+        compute_viscosity!(η, GlenFlowLaw(grid; rate_factor = A), u, v, FreeSlipWalls())
 
         H = CenterField(grid)
         set!(H, 1000)

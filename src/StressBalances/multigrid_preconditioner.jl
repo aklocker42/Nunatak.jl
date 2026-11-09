@@ -1,14 +1,14 @@
 """
 $(TYPEDEF)
 
-Geometric multigrid V-cycle preconditioner for `ssa_operator!`. Each level halves `Nx` and `Ny` and rediscretises
+Geometric multigrid V-cycle preconditioner for `ssa_operator!`. Each level halves `Nx` and `Ny` and rediscretizes
 the operator from the area-weighted average of `η̄H` and the restricted drag; `η̄Hᶠᶠ` is interpolated to the coarse
 corners as in the Picard coefficient update. Velocities are transferred on the C grid, linearly along each
 component's own direction and with 3/4–1/4 weights across it, and restriction is the transpose of prolongation.
 The smoother is ℓ1-Jacobi, whose diagonal bounds the absolute row sum of the operator, so every sweep is
 convergent and the V-cycle is symmetric positive definite, as conjugate gradients require. Wall and ice-free
-velocity points are excluded from the transfers. The coarse coefficients are rebuilt at every application, so the
-preconditioner follows the coefficients through Picard iterations.
+velocity points are excluded from the transfers. The coarse coefficients are rebuilt at the start of every
+conjugate-gradient solve, so the preconditioner follows the coefficients through Picard iterations.
 
 $(TYPEDFIELDS)
 """
@@ -42,6 +42,7 @@ julia> map(level -> size(level.grid), P.levels)
 """
 function StressBalanceMultigridPreconditioner(grid; smoothing_sweeps = 2, coarsest_sweeps = 20, minimum_coarse_size = 2)
     levels = coarse_levels(grid, minimum_coarse_size)
+    isempty(levels) && @warn "$(size(grid)) grid cannot be halved; the multigrid preconditioner reduces to ℓ1-Jacobi sweeps"
     return StressBalanceMultigridPreconditioner(levels, VelocityVector(grid), smoothing_sweeps, coarsest_sweeps)
 end
 
@@ -74,10 +75,11 @@ end
 
 function precondition!(z::VelocityVector, P::StressBalanceMultigridPreconditioner, r::VelocityVector, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, args...)
     walls = side_walls(args...)
-    coarsen_coefficients!(P.levels, η̄H, βᵘ, βᵛ)
     v_cycle!(z, r, P.residual, (; η̄H, η̄Hᶠᶠ, βᵘ, βᵛ), P.levels, walls, P)
     return nothing
 end
+
+update_preconditioner!(P::StressBalanceMultigridPreconditioner, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, args...) = coarsen_coefficients!(P.levels, η̄H, βᵘ, βᵛ)
 
 coarsen_coefficients!(::Tuple{}, η̄H, βᵘ, βᵛ) = nothing
 
@@ -164,121 +166,96 @@ end
     end
 end
 
-# Fine point `2I - 1 + a`, `a ∈ -1:1`, restricted onto coarse face `I` with weights 1/2, 1, 1/2.
-@inline face_restriction_index(I, a, N, ::Periodic) = mod1(2I - 1 + a, N)
-@inline face_restriction_index(I, a, N, ::Bounded) = max(2I - 1 + a, 1)
+# Fine faces `2I - 1 + a`, `a ∈ -1:1`, restrict onto coarse face `I` with weights 1/2, 1, 1/2; fine centers
+# `2J - 1 + b`, `b ∈ -1:2`, onto coarse center `J` with weights 1/4, 3/4, 3/4, 1/4, folded at `Bounded` edges.
+@inline restriction_offsets(::Face) = -1:1
+@inline restriction_offsets(::Center) = -1:2
 
-@inline face_restriction_weight(I, a, ::Periodic, FT) = ifelse(a == 0, one(FT), one(FT) / 2)
-@inline face_restriction_weight(I, a, ::Bounded, FT) = ifelse(2I - 1 + a < 1, zero(FT), face_restriction_weight(I, a, Periodic(), FT))
+@inline restriction_index(I, a, N, ::Periodic, ℓ) = mod1(2I - 1 + a, N)
+@inline restriction_index(I, a, N, ::Bounded, ::Face) = max(2I - 1 + a, 1)
+@inline restriction_index(I, a, N, ::Bounded, ::Center) = clamp(2I - 1 + a, 1, N)
 
-# Fine centre `2J - 1 + b`, `b ∈ -1:2`, onto coarse centre `J` with weights 1/4, 3/4, 3/4, 1/4, folded at `Bounded` edges.
-@inline center_restriction_index(J, b, N, ::Periodic) = mod1(2J - 1 + b, N)
-@inline center_restriction_index(J, b, N, ::Bounded) = clamp(2J - 1 + b, 1, N)
+@inline restriction_weight(I, a, Nc, ::Periodic, ::Face, FT) = ifelse(a == 0, one(FT), one(FT) / 2)
+@inline restriction_weight(I, a, Nc, ::Bounded, ::Face, FT) = ifelse(2I - 1 + a < 1, zero(FT), restriction_weight(I, a, Nc, Periodic(), Face(), FT))
+@inline restriction_weight(I, a, Nc, ::Periodic, ::Center, FT) = ifelse((a == 0) | (a == 1), 3 * one(FT) / 4, one(FT) / 4)
 
-@inline center_base_weight(b, FT) = ifelse((b == 0) | (b == 1), 3 * one(FT) / 4, one(FT) / 4)
-
-@inline center_restriction_weight(J, b, Nc, ::Periodic, FT) = center_base_weight(b, FT)
-
-@inline function center_restriction_weight(J, b, Nc, ::Bounded, FT)
-    outside = ((J == 1) & (b == -1)) | ((J == Nc) & (b == 2))
-    folded = ((J == 1) & (b == 0)) | ((J == Nc) & (b == 1))
-    w = center_base_weight(b, FT) + ifelse(folded, one(FT) / 4, zero(FT))
+@inline function restriction_weight(I, a, Nc, ::Bounded, ::Center, FT)
+    outside = ((I == 1) & (a == -1)) | ((I == Nc) & (a == 2))
+    folded = ((I == 1) & (a == 0)) | ((I == Nc) & (a == 1))
+    w = restriction_weight(I, a, Nc, Periodic(), Center(), FT) + ifelse(folded, one(FT) / 4, zero(FT))
     return ifelse(outside, zero(FT), w)
 end
 
-# Coarse parents of fine face `i` and fine centre `j` with their weights, the transpose of the restriction.
-@inline function face_parents(i, Nc, topology, FT)
+# Coarse parents of fine point `i` with their weights, the transpose of the restriction.
+@inline function parents(i, Nc, topology, ::Face, FT)
     I = (i + 1) ÷ 2
     odd = isodd(i)
-    I⁺ = ifelse(odd, I, upper_face_neighbour(I, Nc, topology))
-    w = ifelse(odd, one(FT), one(FT) / 2)
-    return I, I⁺, w, ifelse(odd, zero(FT), one(FT) / 2)
+    I⁺ = ifelse(odd, I, upper_face(I, Nc, topology))
+    return I, I⁺, ifelse(odd, one(FT), one(FT) / 2), ifelse(odd, zero(FT), one(FT) / 2)
 end
 
-@inline upper_face_neighbour(I, Nc, ::Periodic) = mod1(I + 1, Nc)
-@inline upper_face_neighbour(I, Nc, ::Bounded) = I + 1
-
-@inline function center_parents(j, Nc, topology, FT)
-    J = (j + 1) ÷ 2
-    J′ = ifelse(isodd(j), J - 1, J + 1)
-    return J, center_neighbour(J′, Nc, topology), 3 * one(FT) / 4, one(FT) / 4
+@inline function parents(i, Nc, topology, ::Center, FT)
+    I = (i + 1) ÷ 2
+    I′ = ifelse(isodd(i), I - 1, I + 1)
+    return I, adjacent_center(I′, Nc, topology), 3 * one(FT) / 4, one(FT) / 4
 end
 
-@inline center_neighbour(J, Nc, ::Periodic) = mod1(J, Nc)
-@inline center_neighbour(J, Nc, ::Bounded) = clamp(J, 1, Nc)
+@inline upper_face(I, Nc, ::Periodic) = mod1(I + 1, Nc)
+@inline upper_face(I, Nc, ::Bounded) = I + 1
 
-@inline function restrictᶠᶜ(I, J, k, coarse_grid, fine_grid, ϕ, args...)
+@inline adjacent_center(I, Nc, ::Periodic) = mod1(I, Nc)
+@inline adjacent_center(I, Nc, ::Bounded) = clamp(I, 1, Nc)
+
+@inline function restrict(I, J, k, ℓx, ℓy, coarse_grid, fine_grid, ϕ, args...)
     TX, TY, _ = topology(fine_grid)
     FT = eltype(fine_grid)
     s = zero(FT)
-    for a in -1:1, b in -1:2
-        i = face_restriction_index(I, a, fine_grid.Nx, TX())
-        j = center_restriction_index(J, b, fine_grid.Ny, TY())
-        w = face_restriction_weight(I, a, TX(), FT) * center_restriction_weight(J, b, coarse_grid.Ny, TY(), FT)
+    for a in restriction_offsets(ℓx), b in restriction_offsets(ℓy)
+        i = restriction_index(I, a, fine_grid.Nx, TX(), ℓx)
+        j = restriction_index(J, b, fine_grid.Ny, TY(), ℓy)
+        w = restriction_weight(I, a, coarse_grid.Nx, TX(), ℓx, FT) * restriction_weight(J, b, coarse_grid.Ny, TY(), ℓy, FT)
         s += w * ϕ(i, j, k, fine_grid, args...)
     end
     return s
 end
 
-@inline function restrictᶜᶠ(I, J, k, coarse_grid, fine_grid, ϕ, args...)
+@inline function prolongate(i, j, k, ℓx, ℓy, fine_grid, coarse_grid, ϕ, args...)
     TX, TY, _ = topology(fine_grid)
     FT = eltype(fine_grid)
-    s = zero(FT)
-    for a in -1:2, b in -1:1
-        i = center_restriction_index(I, a, fine_grid.Nx, TX())
-        j = face_restriction_index(J, b, fine_grid.Ny, TY())
-        w = center_restriction_weight(I, a, coarse_grid.Nx, TX(), FT) * face_restriction_weight(J, b, TY(), FT)
-        s += w * ϕ(i, j, k, fine_grid, args...)
-    end
-    return s
-end
-
-@inline function prolongateᶠᶜ(i, j, k, fine_grid, coarse_grid, ϕ, args...)
-    TX, TY, _ = topology(fine_grid)
-    FT = eltype(fine_grid)
-    I₁, I₂, wx₁, wx₂ = face_parents(i, coarse_grid.Nx, TX(), FT)
-    J₁, J₂, wy₁, wy₂ = center_parents(j, coarse_grid.Ny, TY(), FT)
+    I₁, I₂, wx₁, wx₂ = parents(i, coarse_grid.Nx, TX(), ℓx, FT)
+    J₁, J₂, wy₁, wy₂ = parents(j, coarse_grid.Ny, TY(), ℓy, FT)
     return wx₁ * (wy₁ * ϕ(I₁, J₁, k, coarse_grid, args...) + wy₂ * ϕ(I₁, J₂, k, coarse_grid, args...)) +
            wx₂ * (wy₁ * ϕ(I₂, J₁, k, coarse_grid, args...) + wy₂ * ϕ(I₂, J₂, k, coarse_grid, args...))
 end
 
-@inline function prolongateᶜᶠ(i, j, k, fine_grid, coarse_grid, ϕ, args...)
-    TX, TY, _ = topology(fine_grid)
-    FT = eltype(fine_grid)
-    I₁, I₂, wx₁, wx₂ = center_parents(i, coarse_grid.Nx, TX(), FT)
-    J₁, J₂, wy₁, wy₂ = face_parents(j, coarse_grid.Ny, TY(), FT)
-    return wx₁ * (wy₁ * ϕ(I₁, J₁, k, coarse_grid, args...) + wy₂ * ϕ(I₁, J₂, k, coarse_grid, args...)) +
-           wx₂ * (wy₁ * ϕ(I₂, J₁, k, coarse_grid, args...) + wy₂ * ϕ(I₂, J₂, k, coarse_grid, args...))
-end
-
-@inline area_weighted_x_drag(i, j, k, grid, βᵘ) = @inbounds Azᶠᶜᶜ(i, j, k, grid) * βᵘ[i, j, k]
-@inline area_weighted_y_drag(i, j, k, grid, βᵛ) = @inbounds Azᶜᶠᶜ(i, j, k, grid) * βᵛ[i, j, k]
-@inline area_weighted_stiffness(i, j, k, grid, η̄H) = @inbounds Azᶜᶜᶜ(i, j, k, grid) * η̄H[i, j, k]
+@inline area_weighted(i, j, k, grid, ϕ, ℓx, ℓy) = @inbounds Az(i, j, k, grid, ℓx, ℓy, Center()) * ϕ[i, j, k]
 
 @kernel function _coarsen_coefficients!(η̄H, βᵘ, βᵛ, fine_η̄H, fine_βᵘ, fine_βᵛ, grid, fine_grid)
     I, J, k = @index(Global, NTuple)
     i, j = 2I - 1, 2J - 1
     @inbounds begin
-        η̄H[I, J, k] = (area_weighted_stiffness(i, j, k, fine_grid, fine_η̄H) + area_weighted_stiffness(i+1, j, k, fine_grid, fine_η̄H) +
-                       area_weighted_stiffness(i, j+1, k, fine_grid, fine_η̄H) + area_weighted_stiffness(i+1, j+1, k, fine_grid, fine_η̄H)) /
-                      Azᶜᶜᶜ(I, J, k, grid)
-        βᵘ[I, J, k] = restrictᶠᶜ(I, J, k, grid, fine_grid, area_weighted_x_drag, fine_βᵘ) / Azᶠᶜᶜ(I, J, k, grid)
-        βᵛ[I, J, k] = restrictᶜᶠ(I, J, k, grid, fine_grid, area_weighted_y_drag, fine_βᵛ) / Azᶜᶠᶜ(I, J, k, grid)
+        Σ = zero(grid)
+        for a in 0:1, b in 0:1
+            Σ += area_weighted(i + a, j + b, k, fine_grid, fine_η̄H, Center(), Center())
+        end
+        η̄H[I, J, k] = Σ / Azᶜᶜᶜ(I, J, k, grid)
+        βᵘ[I, J, k] = restrict(I, J, k, Face(), Center(), grid, fine_grid, area_weighted, fine_βᵘ, Face(), Center()) / Azᶠᶜᶜ(I, J, k, grid)
+        βᵛ[I, J, k] = restrict(I, J, k, Center(), Face(), grid, fine_grid, area_weighted, fine_βᵛ, Center(), Face()) / Azᶜᶠᶜ(I, J, k, grid)
     end
 end
 
 @kernel function _restrict!(bu, bv, ru, rv, η̄H, fine_η̄H, grid, fine_grid)
     I, J, k = @index(Global, NTuple)
     @inbounds begin
-        bu[I, J, k] = ifelse(inactiveᶠᶜᶜ(I, J, k, grid, η̄H), zero(grid), restrictᶠᶜ(I, J, k, grid, fine_grid, interior_u, ru, fine_η̄H))
-        bv[I, J, k] = ifelse(inactiveᶜᶠᶜ(I, J, k, grid, η̄H), zero(grid), restrictᶜᶠ(I, J, k, grid, fine_grid, interior_v, rv, fine_η̄H))
+        bu[I, J, k] = ifelse(inactiveᶠᶜᶜ(I, J, k, grid, η̄H), zero(grid), restrict(I, J, k, Face(), Center(), grid, fine_grid, interior_u, ru, fine_η̄H))
+        bv[I, J, k] = ifelse(inactiveᶜᶠᶜ(I, J, k, grid, η̄H), zero(grid), restrict(I, J, k, Center(), Face(), grid, fine_grid, interior_v, rv, fine_η̄H))
     end
 end
 
 @kernel function _prolongate!(xu, xv, cu, cv, η̄H, coarse_η̄H, grid, coarse_grid)
     i, j, k = @index(Global, NTuple)
     @inbounds begin
-        xu[i, j, k] += ifelse(inactiveᶠᶜᶜ(i, j, k, grid, η̄H), zero(grid), prolongateᶠᶜ(i, j, k, grid, coarse_grid, interior_u, cu, coarse_η̄H))
-        xv[i, j, k] += ifelse(inactiveᶜᶠᶜ(i, j, k, grid, η̄H), zero(grid), prolongateᶜᶠ(i, j, k, grid, coarse_grid, interior_v, cv, coarse_η̄H))
+        xu[i, j, k] += ifelse(inactiveᶠᶜᶜ(i, j, k, grid, η̄H), zero(grid), prolongate(i, j, k, Face(), Center(), grid, coarse_grid, interior_u, cu, coarse_η̄H))
+        xv[i, j, k] += ifelse(inactiveᶜᶠᶜ(i, j, k, grid, η̄H), zero(grid), prolongate(i, j, k, Center(), Face(), grid, coarse_grid, interior_v, cv, coarse_η̄H))
     end
 end
