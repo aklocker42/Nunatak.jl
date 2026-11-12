@@ -1,0 +1,10 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Nunatak = "6090d1d4-0309-4b62-864e-ed0dc7df3575"
+Oceananigans = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
+
+[sources]
+Nunatak = {path = ".."}
+
+[compat]
+Documenter = "1"

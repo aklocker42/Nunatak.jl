@@ -42,6 +42,23 @@ $(TYPEDSIGNATURES)
 Run Picard iterations: `update_coefficients!(x, args...)` freezes the coefficients at `x`,
 then `solve!(x, linear_solver, b, args...)` solves the linearized problem. Returns the number
 of Picard iterations taken.
+
+```jldoctest
+julia> using Oceananigans, Nunatak
+
+julia> grid = RectilinearGrid(size = (4, 4), x = (0, 1), y = (0, 1), topology = (Periodic, Periodic, Flat));
+
+julia> double!(q, p) = (interior(q.u) .= 2 .* interior(p.u); interior(q.v) .= 2 .* interior(p.v); nothing);
+
+julia> solver = VelocityConjugateGradientSolver(double!, grid);
+
+julia> picard = PicardIteration(grid; iteration_control = FixedIterations(3));
+
+julia> x = VelocityVector(grid);
+
+julia> picard_solve!(x, picard, solver, x -> nothing, fill!(VelocityVector(grid), 1))
+3
+```
 """
 function picard_solve!(x, picard::PicardIteration{<:FixedIterations}, linear_solver, update_coefficients!, b, args...)
     for _ in 1:picard.iteration_control.iterations

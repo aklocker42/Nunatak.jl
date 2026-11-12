@@ -14,6 +14,21 @@ end
 $(TYPEDSIGNATURES)
 
 Apply the preconditioner `P` to the residual `r`, storing the result in `z`.
+
+```jldoctest
+julia> using Oceananigans, Nunatak
+
+julia> grid = RectilinearGrid(size = (4, 4), x = (0, 1), y = (0, 1), topology = (Periodic, Periodic, Flat));
+
+julia> r = fill!(VelocityVector(grid), 3);
+
+julia> z = VelocityVector(grid);
+
+julia> precondition!(z, JacobiPreconditioner(fill!(VelocityVector(grid), 2)), r);
+
+julia> extrema(interior(z.u))
+(1.5, 1.5)
+```
 """
 precondition!(z, ::Nothing, r, args...) = copyto!(z, r)
 
@@ -90,6 +105,25 @@ end
 $(TYPEDSIGNATURES)
 
 Solve `A x = b` in place, starting from the initial guess in `x`.
+
+```jldoctest
+julia> using Oceananigans, Nunatak
+
+julia> grid = RectilinearGrid(size = (4, 4), x = (0, 1), y = (0, 1), topology = (Periodic, Periodic, Flat));
+
+julia> double!(q, p) = (interior(q.u) .= 2 .* interior(p.u); interior(q.v) .= 2 .* interior(p.v); nothing);
+
+julia> solver = VelocityConjugateGradientSolver(double!, grid);
+
+julia> b = fill!(VelocityVector(grid), 1);
+
+julia> x = VelocityVector(grid);
+
+julia> solve!(x, solver, b);
+
+julia> extrema(interior(x.u))
+(0.5, 0.5)
+```
 """
 solve!(x, solver::VelocityConjugateGradientSolver, b, args...) =
     conjugate_gradient!(x, solver.linear_operation!, solver, b, args...)
@@ -98,6 +132,25 @@ solve!(x, solver::VelocityConjugateGradientSolver, b, args...) =
 $(TYPEDSIGNATURES)
 
 Solve `Aᵀ λ = b` in place, starting from the initial guess in `λ`.
+
+```jldoctest
+julia> using Oceananigans, Nunatak
+
+julia> grid = RectilinearGrid(size = (4, 4), x = (0, 1), y = (0, 1), topology = (Periodic, Periodic, Flat));
+
+julia> double!(q, p) = (interior(q.u) .= 2 .* interior(p.u); interior(q.v) .= 2 .* interior(p.v); nothing);
+
+julia> solver = VelocityConjugateGradientSolver(double!, grid);
+
+julia> b = fill!(VelocityVector(grid), 1);
+
+julia> λ = VelocityVector(grid);
+
+julia> adjoint_solve!(λ, solver, b);
+
+julia> extrema(interior(λ.v))
+(0.5, 0.5)
+```
 """
 adjoint_solve!(λ, solver::VelocityConjugateGradientSolver, b, args...) =
     conjugate_gradient!(λ, solver.adjoint_operation!, solver, b, args...)

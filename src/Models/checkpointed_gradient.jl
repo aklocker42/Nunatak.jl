@@ -17,6 +17,7 @@ Gradient of `cost(model)` after `Nt` time steps of size `Δt` with respect to th
 parameter fields, accumulated into the shadow `dmodel` (from `Enzyme.make_zero(model)`), and the value
 of the cost. The forward run stores `prognostic_state` every `checkpoint_interval` steps; the reverse
 pass restores each checkpoint with `restore_prognostic_state!` and differentiates its segment, so only
-one segment is taped at a time. `model` is left at the final state. Requires Enzyme.
+one segment is taped at a time. `model` is left at the final state. Requires Enzyme. `test/test_enzyme.jl`
+checks the gradient against finite differences.
 """
 function checkpointed_gradient! end
