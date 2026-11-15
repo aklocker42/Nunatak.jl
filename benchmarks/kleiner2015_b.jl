@@ -1,14 +1,16 @@
 # Steady polythermal slab with prescribed strain heating (Kleiner et al., 2015, Exp B):
 # compare the cold-temperate transition surface with the analytic solution.
-using Oceananigans, Nunatak, Printf
+using Oceananigans, Oceananigans.Units, Nunatak, Printf
 
 module SteadyPolythermalSlab
 
-const spy = 31556926
+using Oceananigans.Units: seconds
+
+const year = 31556926seconds
 const ρ, g, c, k, L = 910.0, 9.81, 2009.0, 2.1, 3.35e5
 const Tᵣ, T₀ = 223.15, 273.15
 const H, A, γ = 200.0, 5.3e-24, deg2rad(4)
-const a = 0.2 / spy
+const a = 0.2 / year
 const Tₛ = T₀ - 3
 
 const D = k / (c * ρ)
@@ -68,9 +70,9 @@ end
 
 end
 
-using .SteadyPolythermalSlab: spy, ρ, g, c, k, L, Tᵣ, T₀, H, A, γ, a, Tₛ, Eₚₘ, ζₘ
+using .SteadyPolythermalSlab: year, ρ, g, c, k, L, Tᵣ, T₀, H, A, γ, a, Tₛ, Eₚₘ, ζₘ
 
-function steady_polythermal_slab(Nσ, ratio; Δt = 10spy, stop_time = 30_000spy)
+function steady_polythermal_slab(Nσ, ratio; Δt = 10year, stop_time = 30_000year)
     grid = RectilinearGrid(CPU(); size = (1, 1), x = (0, 1e3), y = (0, 1e3), topology = (Periodic, Periodic, Flat))
     thermodynamics = EnthalpyThermodynamics(grid; geothermal_flux = 0, surface_temperature = Tₛ, heat_capacity = c,
                                             thermal_conductivity = k, latent_heat = L, clausius_clapeyron = 0,

@@ -1,8 +1,8 @@
 # Slab under surface cooling, warming and cooling (Kleiner et al., 2015, Exp A):
 # compare the basal melt rate with the analytic solution while the basal water layer refreezes.
-using Oceananigans, Nunatak, Printf
+using Oceananigans, Oceananigans.Units, Nunatak, Printf
 
-spy = 31556926
+year = years = 31556926seconds
 ρ, ρw, g, c, k, L, β = 910.0, 1000.0, 9.81, 2009.0, 2.1, 3.34e5, 7.9e-8
 T₀, Tᵣ = 273.15, 223.15
 H, qᵍ = 1000.0, 0.042
@@ -14,10 +14,10 @@ function cooling_melt_rate(t; Nmodes = 20_000)
     κ = k / (ρ * c)
     series = sum((-1)^(n + 1) * exp(-κ * (n * π / H)^2 * t) for n in 1:Nmodes)
     ∂T∂z = (Tc - Tₚₘ) / H + 2 * (Tw - Tc) / H * series
-    return (qᵍ + k * ∂T∂z) / (ρw * L) * spy
+    return (qᵍ + k * ∂T∂z) / (ρw * L) * year
 end
 
-function surface_temperature_cycle(; Nσ = 100, Δt = 10spy, output = "polythermal_slab_surface_cycle.csv")
+function surface_temperature_cycle(; Nσ = 100, Δt = 10years, output = "kleiner2015_a.csv")
     grid = RectilinearGrid(CPU(); size = (1, 1), x = (0, 1e3), y = (0, 1e3), topology = (Periodic, Periodic, Flat))
     thermodynamics = EnthalpyThermodynamics(grid; geothermal_flux = qᵍ, surface_temperature = Tc, heat_capacity = c,
                                             thermal_conductivity = k, latent_heat = L, clausius_clapeyron = β,
@@ -27,19 +27,25 @@ function surface_temperature_cycle(; Nσ = 100, Δt = 10spy, output = "polytherm
                           velocity_solver = nothing, advection = UpwindBiased(order = 1))
     set!(model; H, T = Tc)
     th = model.thermodynamics
-    cooling_start = 150_000spy
-    t = 0.0
+    cooling_start = 150_000years
     rows = NTuple{4, Float64}[]
-    for (Tₛ, years) in ((Tc, 100_000), (Tw, 50_000), (Tc, 150_000))
+
+    function record_melt(sim)
+        t = time(sim)
+        melt = Array(interior(th.state.mᵍ))[1] * year * ρ / ρw
+        water = Array(interior(th.state.Hw))[1] * ρ / ρw
+        exact = t > cooling_start ? cooling_melt_rate(t - cooling_start) : NaN
+        push!(rows, (t / year, melt, water, exact))
+        return nothing
+    end
+
+    simulation = Simulation(model; Δt)
+    add_callback!(simulation, record_melt, IterationInterval(1))
+
+    for (Tₛ, stop_time) in ((Tc, 100_000years), (Tw, cooling_start), (Tc, 300_000years))
         set!(th.surface_temperature, Tₛ)
-        for _ in 1:round(Int, years * spy / Δt)
-            time_step!(model, Δt)
-            t += Δt
-            melt = Array(interior(th.state.mᵍ))[1] * spy * ρ / ρw
-            water = Array(interior(th.state.Hw))[1] * ρ / ρw
-            exact = t > cooling_start ? cooling_melt_rate(t - cooling_start) : NaN
-            push!(rows, (t / spy, melt, water, exact))
-        end
+        simulation.stop_time = stop_time
+        run!(simulation)
     end
     open(output, "w") do io
         println(io, "t_years,melt_we_m_per_a,water_we_m,melt_exact_we_m_per_a")
@@ -59,7 +65,7 @@ function sign_change(rows, column)
 end
 
 @printf("warm steady melt %.4e, analytic %.4e m/a w.e.\n", rows[findfirst(r -> r[1] ≥ 150_000, rows)][2],
-        (qᵍ - k * (Tₚₘ - Tw) / H) / (ρw * L) * spy)
+        (qᵍ - k * (Tₚₘ - Tw) / H) / (ρw * L) * year)
 @printf("melt to freeze after %.1f a, analytic %.1f a\n", sign_change(cooling, 2), sign_change(cooling, 4))
 @printf("max |melt - analytic| with basal water %.3e m/a w.e.\n", maximum(r -> abs(r[2] - r[4]), cooling))
 @printf("final melt %.4e, analytic %.4e m/a w.e.\n", cooling[end][2], cooling[end][4])

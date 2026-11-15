@@ -132,8 +132,8 @@ end
     end
 
     @testset "Halfar dome: conserves volume and follows the similarity solution" begin
-        spy = 31556926.0
-        H₀, R₀, A, ρᵢ, g = 3600.0, 750e3, 1e-16 / spy, 910, 9.81
+        year = 31556926.0
+        H₀, R₀, A, ρᵢ, g = 3600.0, 750e3, 1e-16 / year, 910, 9.81
         Γ = 2A * (ρᵢ * g)^3 / 5
         t₀ = (7 / 4)^3 * R₀^4 / (18Γ * H₀^7)
         Nx, L = 49, 1225e3

@@ -1,13 +1,19 @@
 # Validation
 
-The scripts in `benchmarks/` run longer cases than the test suite. Run them from that directory with the
-examples environment, for example `julia --project=../examples -e 'include("halfar.jl"); halfar()'`.
+The scripts in `benchmarks/` compare Nunatak with analytic solutions and published model results, in cases too slow
+for the test suite. Run them from that directory with its environment, for example
+`julia --project=. -e 'include("halfar.jl"); halfar()'`. The [examples](literated/ice_cap.md) are tutorials and make no
+such comparisons.
 
 | Script | Case | Reference |
 |---|---|---|
-| `halfar.jl` | Isothermal similarity dome, 25 kyr | Halfar (1983); Bueler et al. (2005), Test B |
-| `eismint2_a.jl` | Thermomechanical ice cap grown from zero ice, 200 kyr | Payne et al. (2000), experiment A |
+| `halfar.jl` | Isothermal similarity dome, 25 kyr | [Halfar1983](@citet); [Bueler2005](@citet), Test B |
+| `eismint2_a.jl` | Thermomechanical ice cap grown from zero ice, 200 kyr | [Payne2000](@citet), experiment A |
 | `halfpipe_streamice.jl` | Floating shelf in a channel with an advancing calving front, 2 years | MITgcm STREAMICE `verification/halfpipe_streamice` |
+| `halfpipe_streamice_adjoint.jl` | Gradient of a velocity and thickness cost with respect to basal melt | MITgcm STREAMICE `verification/halfpipe_streamice` (`input_ad`) |
+| `mismip_plus.jl` | Marine ice stream on a retrograde bed: spin-up, Ice1r, Ice1ra, Ice2r, Ice2ra | [AsayDavis2016](@citet); STREAMICE in [Cornford2020](@citet) |
+| `kleiner2015_a.jl` | Slab under a surface temperature cycle, basal melt and refreezing | [Kleiner2015](@citet), experiment A |
+| `kleiner2015_b.jl` | Steady polythermal slab, cold-temperate transition surface | [Kleiner2015](@citet), experiment B |
 
 ## Halfpipe against STREAMICE
 

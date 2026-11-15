@@ -1,30 +1,77 @@
-# Twin experiment: recover a basal friction field from noisy surface velocities, with C = C₀ exp(γ),
-# cost = velocity misfit + Tikhonov on ∇γ, Enzyme gradients through the velocity solve, and L-BFGS.
-# Writes friction_inversion_lambda*.jld2 to the current directory, one per regularization strength.
-# Usage: julia --project=path/to/Nunatak/examples -e 'using Pkg; Pkg.instantiate()'
-#        julia --project=path/to/Nunatak/examples path/to/Nunatak/examples/friction_inversion.jl
-using Oceananigans, Nunatak, Enzyme, JLD2, Printf, Random
-using Optim: Optim, optimize, LBFGS
+# # Inverting for basal friction with Enzyme
+#
+# Ice-sheet models need the friction between the ice and its bed, which cannot be observed directly. It is
+# usually inferred from surface velocities, which satellites measure, by an inversion: find the friction for which
+# the modelled velocities match the observed ones. This example runs a twin experiment. We make synthetic
+# observations from a known friction field, add noise, and recover the friction with gradients that Enzyme computes
+# through the velocity solve. The example shows how to
+#
+#   * write a cost function that solves the stress balance,
+#   * differentiate it with Enzyme's reverse mode,
+#   * minimise it with L-BFGS from Optim.jl.
+#
+# ## Install dependencies
+#
+# ```julia
+# using Pkg
+# pkg"add Oceananigans, Enzyme, Optim, CairoMakie"
+# pkg"add https://github.com/aklocker42/Nunatak.jl"
+# ```
+
+using Oceananigans
+using Oceananigans.Units
 using Oceananigans.BoundaryConditions: fill_halo_regions!
 using Oceananigans.TimeSteppers: update_state!
+using Nunatak
+using Enzyme
+using Optim: Optim, optimize, LBFGS
+using CairoMakie
+using Printf
+using Random
 
-Lx, Ly = 160e3, 80e3
+year = years = 31556926seconds
+
+# ## The ice stream
+#
+# A 1500 m thick ice stream thins toward a floating shelf at x = 140 km. Its bed slopes down to below sea level.
+
+Lx, Ly = 160kilometers, 80kilometers
 Nx, Ny = 40, 20
-C₀ = 3e6
-noise = 0.01
-sec_per_year = 3.15576e7
 
 grid = RectilinearGrid(CPU(); size = (Nx, Ny), halo = (4, 4), x = (0, Lx), y = (0, Ly), topology = (Bounded, Bounded, Flat))
+
+thickness(x, y) = ifelse(x < 140kilometers, 1500 - 7e-3 * x - 200 * ((y - Ly / 2) / (Ly / 2))^2, 0.0)
+
+# The friction coefficient is written as ``C = C_0 \exp(γ)``, so that ``C`` stays positive whatever ``γ`` the
+# optimiser tries. We invert for ``γ``.
+
+C₀ = 3e6
+
+# Picard iterations converge the nonlinear viscosity; we run a fixed number so that every cost evaluation does the
+# same work.
+
 velocity_solver = StressBalanceSolver(grid; linear_iteration_control = Convergence(; reltol = 1e-12, maxiter = 10_000),
                                       picard_iteration_control = FixedIterations(30))
-model = IceSheetModel(grid; velocity_solver, rheology = GlenFlowLaw(grid; rate_factor = 1e-24),
+
+model = IceSheetModel(grid; velocity_solver,
+                      rheology = GlenFlowLaw(grid; rate_factor = 1e-24),
                       friction = WeertmanFriction(grid; coefficient = C₀),
-                      grounding = SubgridGroundedFraction(), bed = (x, y) -> 100 - 1e-2 * x)
-thickness(x, y) = ifelse(x < 140e3, 1500 - 7e-3 * x - 200 * ((y - Ly / 2) / (Ly / 2))^2, 0.0)
+                      grounding = SubgridGroundedFraction(),
+                      bed = (x, y) -> 100 - 1e-2 * x)
+
 set!(model; H = thickness)
 
+# ## Synthetic observations
+#
+# The true friction has two sticky patches and one slippery patch. We solve for the velocities it gives and add
+# noise of 1% of their root-mean-square value.
+
 bump(x, y, x₀, y₀, r) = exp(-((x - x₀)^2 + (y - y₀)^2) / r^2)
-true_friction(x, y) = 0.8 * bump(x, y, 30e3, 25e3, 8e3) + 0.8 * bump(x, y, 50e3, 55e3, 8e3) - 1.0 * bump(x, y, 40e3, 40e3, 10e3)
+
+true_friction(x, y) = 0.8 * bump(x, y, 30kilometers, 25kilometers, 8kilometers) +
+                      0.8 * bump(x, y, 50kilometers, 55kilometers, 8kilometers) -
+                      1.0 * bump(x, y, 40kilometers, 40kilometers, 10kilometers)
+
 xᶜ, yᶜ = xnodes(grid, Center()), ynodes(grid, Center())
 γ_true = [true_friction(x, y) for x in xᶜ, y in yᶜ]
 
@@ -42,6 +89,27 @@ function solve_velocities!(model)
     return nothing
 end
 
+set_friction!(model, γ_true)
+solve_velocities!(model)
+
+u_true = Array(interior(model.velocities.u, :, :, 1))
+v_true = Array(interior(model.velocities.v, :, :, 1))
+grounded = Array(interior(model.geometry.φ, :, :, 1)) .> 0.5
+
+rng = Xoshiro(1)
+noise = 0.01 * sqrt(sum(abs2, u_true) / length(u_true))
+uᵒ = u_true .+ noise .* randn(rng, size(u_true))
+vᵒ = v_true .+ noise .* randn(rng, size(v_true))
+norm = sum(abs2, uᵒ) + sum(abs2, vᵒ)
+
+@info @sprintf("%d of %d cells grounded, max |u| = %.1f m/a, noise σ = %.2f m/a",
+               count(grounded), length(grounded), maximum(abs, u_true) * year, noise * year)
+
+# ## The cost function
+#
+# The cost is the velocity misfit, which Enzyme differentiates with respect to the friction coefficient. Nunatak
+# provides adjoint rules for the velocity solve, so the gradient costs about as much as a forward solve.
+
 function misfit(model, uᵒ, vᵒ, norm)
     fill_halo_regions!(model.friction.coefficient)
     fill!(model.velocities.u, 0)
@@ -58,7 +126,9 @@ function misfit(model, uᵒ, vᵒ, norm)
     return J / 2norm
 end
 
-# Tikhonov ½ λ Σ |Δγ|² over neighboring grounded cells, and its gradient.
+# Noise makes the inversion ill posed, so we add a penalty ``\frac{λ}{2} \sum |Δγ|^2`` on differences of ``γ``
+# between neighbouring grounded cells, whose gradient we write by hand.
+
 function regularization!(g, γ, grounded, λ)
     Nx, Ny = size(γ)
     R = zero(eltype(γ))
@@ -79,18 +149,7 @@ function regularization!(g, γ, grounded, λ)
     return R
 end
 
-set_friction!(model, γ_true)
-solve_velocities!(model)
-u_true = Array(interior(model.velocities.u, :, :, 1))
-v_true = Array(interior(model.velocities.v, :, :, 1))
-grounded = Array(interior(model.geometry.φ, :, :, 1)) .> 0.5
-rng = Xoshiro(1)
-scale = noise * sqrt(sum(abs2, u_true) / length(u_true))
-uᵒ = u_true .+ scale .* randn(rng, size(u_true))
-vᵒ = v_true .+ scale .* randn(rng, size(v_true))
-norm = sum(abs2, uᵒ) + sum(abs2, vᵒ)
-@printf("grounded cells %d / %d, max |u| = %.1f m/a, noise σ = %.2f m/a\n",
-        count(grounded), length(grounded), maximum(abs, u_true) * sec_per_year, scale * sec_per_year)
+# The chain rule through ``C = C_0 \exp(γ)`` turns ``∂J/∂C`` into ``∂J/∂γ``.
 
 function cost_and_gradient!(g, γ, λ)
     set_friction!(model, γ)
@@ -102,31 +161,11 @@ function cost_and_gradient!(g, γ, λ)
     return J + regularization!(g, γ, grounded, λ)
 end
 
-function cost(γ, λ)
-    set_friction!(model, γ)
-    return misfit(model, uᵒ, vᵒ, norm) + regularization!(zeros(size(γ)), γ, grounded, λ)
-end
-
-function check_gradient(γ, λ; h = 1e-4)
-    g = similar(γ)
-    cost_and_gradient!(g, γ, λ)
-    for index in ((8, 6), (12, 14), (30, 10))
-        γ⁺, γ⁻ = copy(γ), copy(γ)
-        γ⁺[index...] += h
-        γ⁻[index...] -= h
-        fd = (cost(γ⁺, λ) - cost(γ⁻, λ)) / 2h
-        @printf("gradient check %-8s ad = % .6e  fd = % .6e  rel = %.1e\n", string(index), g[index...], fd, abs(g[index...] - fd) / abs(fd))
-    end
-    return nothing
-end
-
-rms(a) = sqrt(sum(abs2, a) / length(a))
+# ## Running the inversion
+#
+# We start from ``γ = 0`` and run L-BFGS for two regularization strengths.
 
 function invert_friction(λ)
-    γ₀ = zeros(Nx, Ny)
-    @printf("λ = %.0e\n", λ)
-    check_gradient(γ₀, λ)
-
     history = Float64[]
 
     function objective(F, G, γ)
@@ -135,26 +174,59 @@ function invert_friction(λ)
         return J
     end
 
-    wall = @elapsed result = optimize(Optim.NLSolversBase.only_fg!(objective), γ₀, LBFGS(),
-                                      Optim.Options(iterations = 100, g_tol = 1e-10, show_trace = true, show_every = 5))
-    γ_inv = Optim.minimizer(result)
-    println(result)
+    result = optimize(Optim.NLSolversBase.only_fg!(objective), zeros(Nx, Ny), LBFGS(),
+                      Optim.Options(iterations = 100, g_tol = 1e-10, show_trace = true, show_every = 5))
 
-    set_friction!(model, γ_inv)
+    γ = Optim.minimizer(result)
+    set_friction!(model, γ)
     solve_velocities!(model)
-    u_inv = Array(interior(model.velocities.u, :, :, 1))
-    v_inv = Array(interior(model.velocities.v, :, :, 1))
-    @printf("wall %.0f s; misfit rms %.3f m/a (noise %.3f); γ error rms grounded %.3f (prior %.3f)\n",
-            wall, rms(vcat(vec(u_inv .- uᵒ), vec(v_inv .- vᵒ))) * sec_per_year, scale * sec_per_year,
-            rms((γ_inv .- γ_true)[grounded]), rms(γ_true[grounded]))
+    u = Array(interior(model.velocities.u, :, :, 1))
+    v = Array(interior(model.velocities.v, :, :, 1))
 
-    jldsave(@sprintf("friction_inversion_lambda%.0e.jld2", λ); xᶜ = collect(xᶜ), yᶜ = collect(yᶜ), γ_true, γ_inv, grounded,
-            u_true, v_true, uᵒ, vᵒ, u_inv, v_inv, history, thickness = Array(interior(model.geometry.H, :, :, 1)), λ, noise)
-
-    return nothing
+    return (; λ, γ, u, v, history)
 end
 
-# λ = 1e-3 over-smooths the patches; λ = 1e-5 fits the velocities down to the noise.
-for λ in (1e-3, 1e-5)
-    invert_friction(λ)
+inversions = [invert_friction(λ) for λ in (1e-3, 1e-5)]
+
+for r in inversions
+    γ_error = sqrt(sum(abs2, (r.γ .- γ_true)[grounded]) / count(grounded))
+    @info @sprintf("λ = %.0e: %d cost evaluations, rms γ error on grounded ice %.3f", r.λ, length(r.history), γ_error)
 end
+
+# ## Plotting
+#
+# The stronger regularization, ``λ = 10^{-3}``, smooths the patches away; ``λ = 10^{-5}`` recovers them and fits
+# the velocities down to the noise. Only grounded ice, inside the black contour, constrains the friction.
+
+masked(a) = ifelse.(grounded, a, NaN)
+centred_speed(u, v) = sqrt.(((u[1:end-1, :] .+ u[2:end, :]) ./ 2) .^ 2 .+ ((v[:, 1:end-1] .+ v[:, 2:end]) ./ 2) .^ 2)
+
+x, y = xᶜ ./ kilometer, yᶜ ./ kilometer
+
+fig = Figure(size = (1400, 800))
+
+panels = [(γ_true, "true γ"), (inversions[1].γ, "inverted γ, λ = 1e-3"), (inversions[2].γ, "inverted γ, λ = 1e-5")]
+for (n, (γ, title)) in enumerate(panels)
+    ax = Axis(fig[1, n]; title, xlabel = "x (km)", ylabel = "y (km)", aspect = DataAspect())
+    hm = heatmap!(ax, x, y, masked(γ); colormap = :balance, colorrange = (-1, 1))
+    contour!(ax, x, y, Float64.(grounded); levels = [0.5], color = :black)
+    n == 3 && Colorbar(fig[1, 4], hm; label = "γ = log(C / C₀)")
+end
+
+ax = Axis(fig[2, 1]; title = "observed speed", xlabel = "x (km)", ylabel = "y (km)", aspect = DataAspect())
+hm = heatmap!(ax, x, y, log10.(max.(centred_speed(uᵒ, vᵒ) .* year, 1)); colormap = :viridis)
+Colorbar(fig[3, 1], hm; label = "log₁₀ speed (m/a)", vertical = false, flipaxis = false)
+
+r = inversions[2]
+ax = Axis(fig[2, 2]; title = "inverted − observed speed (m/a), λ = 1e-5", xlabel = "x (km)", aspect = DataAspect())
+hm = heatmap!(ax, x, y, (centred_speed(r.u, r.v) .- centred_speed(uᵒ, vᵒ)) .* year; colormap = :balance,
+              colorrange = (-300, 300))
+Colorbar(fig[3, 2], hm; vertical = false, flipaxis = false)
+
+ax = Axis(fig[2, 3]; title = "cost during L-BFGS", xlabel = "evaluation", ylabel = "J", yscale = log10)
+for r in inversions
+    lines!(ax, r.history; label = @sprintf("λ = %.0e", r.λ))
+end
+axislegend(ax)
+
+save("friction_inversion.png", fig)

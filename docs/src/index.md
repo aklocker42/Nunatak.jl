@@ -1,4 +1,39 @@
-# Nunatak.jl
+```@raw html
+---
+layout: home
+
+hero:
+  name: "Nunatak.jl"
+  tagline: "Differentiable ice-sheet and ice-shelf modelling in Julia, on CPUs and GPUs."
+  image:
+    src: /logo.svg
+    alt: Nunatak
+  actions:
+    - theme: brand
+      text: Get Started
+      link: /model/overview
+    - theme: alt
+      text: View on Github
+      link: https://github.com/aklocker42/Nunatak.jl
+    - theme: brand
+      text: Validation
+      link: /validation
+
+features:
+  - title: Stress balances
+    details: Shallow ice, shallow shelf and depth-integrated viscosity (DIVA) on a staggered C-grid.
+    link: /model/stress_balances
+  - title: Grounding lines and fronts
+    details: Sub-grid grounded fractions, calving-front stresses and partially filled front cells.
+    link: /model/grounding_and_fronts
+  - title: Thermodynamics
+    details: Enthalpy with cold and temperate ice, basal water and strain heating on a σ grid.
+    link: /model/thermodynamics
+  - title: Gradients
+    details: Enzyme reverse mode through whole simulations, with a fixed-point adjoint of the velocity solve.
+    link: /gradients
+---
+```
 
 Nunatak is a differentiable ice-sheet and ice-shelf model built on
 [Oceananigans.jl](https://github.com/CliMA/Oceananigans.jl). It runs on CPUs and GPUs, and Enzyme computes
@@ -30,27 +65,28 @@ Pkg.add(url = "https://github.com/aklocker42/Nunatak.jl")
 
 ## Example
 
-A Halfar (1983) dome evolving under the shallow-ice approximation:
+A [Halfar1983](@citet) dome evolving under the shallow-ice approximation:
 
 ```julia
-using Oceananigans, Nunatak
+using Oceananigans, Oceananigans.Units, Nunatak
 
-spy = 31556926
-grid = RectilinearGrid(CPU(); size = (97, 97), halo = (4, 4), x = (-1212.5e3, 1212.5e3), y = (-1212.5e3, 1212.5e3),
+year = years = 31556926seconds
+grid = RectilinearGrid(CPU(); size = (97, 97), halo = (4, 4),
+                       x = (-1212.5kilometers, 1212.5kilometers), y = (-1212.5kilometers, 1212.5kilometers),
                        topology = (Bounded, Bounded, Flat))
 
 model = IceSheetModel(grid; Nσ = 10, stress_balance = ShallowIce(),
-                      rheology = GlenFlowLaw(grid; rate_factor = 1e-16 / spy, exponent = 3),
+                      rheology = GlenFlowLaw(grid; rate_factor = 1e-16 / year, exponent = 3),
                       friction = WeertmanFriction(grid; coefficient = 1e18, exponent = 1))
 
-set!(model, H = (x, y) -> 3600 * max(0, 1 - (hypot(x, y) / 750e3)^(4 / 3))^(3 / 7))
+set!(model, H = (x, y) -> 3600 * max(0, 1 - (hypot(x, y) / 750kilometers)^(4 / 3))^(3 / 7))
 
-for _ in 1:100
-    time_step!(model, 1spy)
-end
+simulation = Simulation(model; Δt = 1year, stop_time = 100years)
+run!(simulation)
 ```
 
-`examples/` has a friction inversion with Enzyme gradients and two polythermal slab cases.
+`examples/` has tutorials: an ice cap grown with shallow ice, a marine ice sheet advancing into the ocean, and a
+basal friction inversion with Enzyme gradients.
 
 See [Validation](validation.md) for benchmarks against analytic solutions and other models.
 

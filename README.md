@@ -35,24 +35,25 @@ Pkg.add(url = "https://github.com/aklocker42/Nunatak.jl")
 A Halfar (1983) dome evolving under the shallow-ice approximation:
 
 ```julia
-using Oceananigans, Nunatak
+using Oceananigans, Oceananigans.Units, Nunatak
 
-spy = 31556926
-grid = RectilinearGrid(CPU(); size = (97, 97), halo = (4, 4), x = (-1212.5e3, 1212.5e3), y = (-1212.5e3, 1212.5e3),
+year = years = 31556926seconds
+grid = RectilinearGrid(CPU(); size = (97, 97), halo = (4, 4),
+                       x = (-1212.5kilometers, 1212.5kilometers), y = (-1212.5kilometers, 1212.5kilometers),
                        topology = (Bounded, Bounded, Flat))
 
 model = IceSheetModel(grid; Nσ = 10, stress_balance = ShallowIce(),
-                      rheology = GlenFlowLaw(grid; rate_factor = 1e-16 / spy, exponent = 3),
+                      rheology = GlenFlowLaw(grid; rate_factor = 1e-16 / year, exponent = 3),
                       friction = WeertmanFriction(grid; coefficient = 1e18, exponent = 1))
 
-set!(model, H = (x, y) -> 3600 * max(0, 1 - (hypot(x, y) / 750e3)^(4 / 3))^(3 / 7))
+set!(model, H = (x, y) -> 3600 * max(0, 1 - (hypot(x, y) / 750kilometers)^(4 / 3))^(3 / 7))
 
-for _ in 1:100
-    time_step!(model, 1spy)
-end
+simulation = Simulation(model; Δt = 1year, stop_time = 100years)
+run!(simulation)
 ```
 
-`examples/` has a friction inversion with Enzyme gradients and two polythermal slab cases.
+`examples/` has tutorials: an ice cap grown with shallow ice, a marine ice sheet advancing into the ocean, and a
+basal friction inversion with Enzyme gradients.
 
 ## Validation
 
@@ -63,7 +64,9 @@ The test suite runs on CPU and GPU. `benchmarks/` holds longer runs against publ
 | Isothermal Halfar dome, 25 kyr | Halfar (1983); Bueler et al. (2005), Test B |
 | EISMINT II experiment A, 200 kyr | Payne et al. (2000) |
 | Floating shelf in a channel with an advancing calving front | MITgcm STREAMICE `verification/halfpipe_streamice` |
-| Steady and cyclic polythermal slabs (in `examples/`) | Kleiner et al. (2015) |
+| STREAMICE halfpipe adjoint, gradient with respect to basal melt | MITgcm STREAMICE `verification/halfpipe_streamice` (`input_ad`) |
+| MISMIP+ spin-up and melt experiments | Asay-Davis et al. (2016); STREAMICE in Cornford et al. (2020) |
+| Steady and cyclic polythermal slabs | Kleiner et al. (2015) |
 
 See `benchmarks/README.md` for how to run them and for the reference values.
 
