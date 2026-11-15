@@ -1,5 +1,7 @@
 using Nunatak: ssa_operator!, compute_viscosity!
-using Oceananigans.Operators: Azᶜᶜᶜ
+using Oceananigans.Operators: Azᶠᶜᶜ, Azᶜᶠᶜ
+using Oceananigans.AbstractOperations: KernelFunctionOperation
+using Oceananigans.Fields: location
 
 function ssa_coefficients(grid; η̄H = (x, y) -> 1 + x^2 + sin(2π * y)^2 / 2,
                                 β = (x, y) -> 1 + x * y)
@@ -108,14 +110,22 @@ end
     @test dot(Ap, p) > 0
 end
 
+# Cells across the channel shrink to 0.4 of the mean width at the walls and grow to 1.6 in the middle.
+channel_faces(N, W, ::Val{true}) = [W * (ξ - 0.6 * sin(2π * ξ) / 2π) for ξ in range(0, 1, length = N + 1)]
+channel_faces(N, W, ::Val{false}) = (0, W)
+
 # Channel flow between no-slip walls under a uniform body force f: u = f y (W - y) / 2η₀.
-function channel_flow_error(N; along_x = true)
+function channel_flow_error(N; along_x = true, stretched = false)
     W, η₀, f = 1, 2, 3
     topology = along_x ? (Periodic, Bounded, Flat) : (Bounded, Periodic, Flat)
-    grid = RectilinearGrid(arch; size = along_x ? (4, N) : (N, 4), x = (0, along_x ? 1 : W), y = (0, along_x ? W : 1), topology)
+    across_faces = channel_faces(N, W, Val(stretched))
+    grid = RectilinearGrid(arch; size = along_x ? (4, N) : (N, 4), x = along_x ? (0, 1) : across_faces,
+                           y = along_x ? across_faces : (0, 1), topology)
     coefficients = (ssa_coefficients(grid; η̄H = η₀, β = 0)..., NoSlipWalls())
     rhs = VelocityVector(grid)
-    set!(along_x ? rhs.u : rhs.v, f * Azᶜᶜᶜ(1, 1, 1, grid))
+    forced = along_x ? rhs.u : rhs.v
+    area = KernelFunctionOperation{location(forced)...}(along_x ? Azᶠᶜᶜ : Azᶜᶠᶜ, grid)
+    set!(forced, Field(f * area))
     solver = VelocityConjugateGradientSolver(ssa_operator!, grid; iteration_control = Convergence(; reltol = 1e-13, maxiter = 10_000),
                                              preconditioner = StressBalanceDiagonalPreconditioner())
     x = VelocityVector(grid)
@@ -129,10 +139,10 @@ function channel_flow_error(N; along_x = true)
 end
 
 @testset "No-slip walls" begin
-    for along_x in (true, false)
-        (e₁, a₁), (e₂, a₂) = channel_flow_error(16; along_x), channel_flow_error(32; along_x)
-        @info "No-slip channel flow error" along_x e₁ e₂ ratio = e₁ / e₂
-        @test e₂ < 2e-3
+    for along_x in (true, false), stretched in (false, true)
+        (e₁, a₁), (e₂, a₂) = channel_flow_error(16; along_x, stretched), channel_flow_error(32; along_x, stretched)
+        @info "No-slip channel flow error" along_x stretched e₁ e₂ ratio = e₁ / e₂
+        @test e₂ < ifelse(stretched, 3e-3, 2e-3)
         @test e₁ / e₂ > 3.5
         @test max(a₁, a₂) < 1e-12
     end

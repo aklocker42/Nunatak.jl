@@ -2,6 +2,8 @@ using Nunatak: compute_strain_heating!, layer_thickness
 using Oceananigans.Grids: halo_size
 using Oceananigans.Advection: Centered
 using Oceananigans.Diagnostics: cell_diffusion_timescale
+using Oceananigans.Operators: Azᶜᶜᶜ
+using Oceananigans.AbstractOperations: KernelFunctionOperation
 
 # Uniform slab of thickness H₀ on a bed sloping down in x with slope α: the shallow-ice solution is uniform in x.
 slab_friction(::Nothing, grid) = nothing
@@ -25,6 +27,33 @@ slab_driving_stress(model, H₀, α) = model.constants.ice_density * model.const
 function halfar_thickness(r, t, t₀, H₀, R₀)
     ξ = (t₀ / t)^(1 / 18) * r / R₀
     return H₀ * (t₀ / t)^(1 / 9) * max(0, 1 - ξ^(4 / 3))^(3 / 7)
+end
+
+# Cells are half the mean width at the centre of the dome and 1.5 times it at the domain edges.
+halfar_stretched_faces(N, L) = [L * (ξ - sin(π * ξ) / 2π) for ξ in range(-1, 1, length = N + 1)]
+
+function halfar_dome(faces; Nx = 49)
+    year = 31556926.0
+    H₀, R₀, A, ρᵢ, g = 3600.0, 750e3, 1e-16 / year, 910, 9.81
+    Γ = 2A * (ρᵢ * g)^3 / 5
+    t₀ = (7 / 4)^3 * R₀^4 / (18Γ * H₀^7)
+    grid = RectilinearGrid(arch; size = (Nx, Nx), halo = (4, 4), x = faces, y = faces, topology = (Bounded, Bounded, Flat))
+    model = IceSheetModel(grid; stress_balance = ShallowIce(), rheology = GlenFlowLaw(grid; rate_factor = A),
+                          constants = IceSheetConstants(grid; ice_density = ρᵢ, gravitational_acceleration = g))
+    model.clock.time = t₀
+    set!(model; H = (x, y) -> halfar_thickness(hypot(x, y), t₀, t₀, H₀, R₀))
+    area = Array(interior(Field(KernelFunctionOperation{Center, Center, Center}(Azᶜᶜᶜ, grid)), :, :, 1))
+    V₀ = sum(Array(interior(model.geometry.H, :, :, 1)) .* area)
+    while model.clock.time < 2t₀
+        Δt = min(cell_diffusion_timescale(model) / 4, 2t₀ - model.clock.time)
+        time_step!(model, Δt)
+    end
+    H = Array(interior(model.geometry.H, :, :, 1))
+    x = Array(xnodes(grid, Center()))
+    exact = [halfar_thickness(hypot(xᵢ, yⱼ), 2t₀, t₀, H₀, R₀) for xᵢ in x, yⱼ in x]
+    Φ = CenterField(model.σgrid)
+    compute_strain_heating!(Φ, model, model.stress_balance)
+    return (; H, exact, x, area, V₀, Φ = Array(interior(Φ)))
 end
 
 @testset "Shallow-ice approximation" begin
@@ -131,37 +160,17 @@ end
         @test A[Hx, :, :] == A[Hx + 4, :, :]
     end
 
-    @testset "Halfar dome: conserves volume and follows the similarity solution" begin
-        year = 31556926.0
-        H₀, R₀, A, ρᵢ, g = 3600.0, 750e3, 1e-16 / year, 910, 9.81
-        Γ = 2A * (ρᵢ * g)^3 / 5
-        t₀ = (7 / 4)^3 * R₀^4 / (18Γ * H₀^7)
-        Nx, L = 49, 1225e3
-        grid = RectilinearGrid(arch; size = (Nx, Nx), halo = (4, 4), x = (-L, L), y = (-L, L), topology = (Bounded, Bounded, Flat))
-        model = IceSheetModel(grid; stress_balance = ShallowIce(), rheology = GlenFlowLaw(grid; rate_factor = A),
-                              constants = IceSheetConstants(grid; ice_density = ρᵢ, gravitational_acceleration = g))
-        model.clock.time = t₀
-        set!(model; H = (x, y) -> halfar_thickness(hypot(x, y), t₀, t₀, H₀, R₀))
-        V₀ = sum(Array(interior(model.geometry.H)))
-        while model.clock.time < 2t₀
-            Δt = min(cell_diffusion_timescale(model) / 4, 2t₀ - model.clock.time)
-            time_step!(model, Δt)
-        end
-        H = Array(interior(model.geometry.H, :, :, 1))
-        x = Array(xnodes(grid, Center()))
-        exact = [halfar_thickness(hypot(xᵢ, yⱼ), 2t₀, t₀, H₀, R₀) for xᵢ in x, yⱼ in x]
+    @testset "Halfar dome on a $(name) grid: conserves volume and follows the similarity solution" for (name, faces, margin_error) in
+            (("uniform", (-1225e3, 1225e3), 0.08), ("stretched", halfar_stretched_faces(49, 1225e3), 0.12))
+        (; H, exact, x, area, V₀, Φ) = halfar_dome(faces)
         interior_ice = [hypot(xᵢ, yⱼ) ≤ 600e3 for xᵢ in x, yⱼ in x]
-        @test sum(H) ≈ V₀ rtol = 1e-12
+        @test sum(H .* area) ≈ V₀ rtol = 1e-12
         @test minimum(H) ≥ 0
         @test abs(H[25, 25] - exact[25, 25]) / exact[25, 25] < 1e-3
         @test maximum(abs, (H .- exact)[interior_ice] ./ exact[interior_ice]) < 0.01
-        @test maximum(abs, H .- exact) / H₀ < 0.08
+        @test maximum(abs, H .- exact) / 3600 < margin_error
         @test H ≈ H' rtol = 1e-12
         @test H ≈ reverse(H, dims = 1) rtol = 1e-12
-
-        Φ = CenterField(model.σgrid)
-        compute_strain_heating!(Φ, model, model.stress_balance)
-        Φᵢ = Array(interior(Φ))
-        @test Φᵢ ≈ reverse(Φᵢ, dims = 1) rtol = 1e-10
+        @test Φ ≈ reverse(Φ, dims = 1) rtol = 1e-10
     end
 end

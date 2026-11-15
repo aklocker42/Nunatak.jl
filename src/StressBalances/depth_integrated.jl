@@ -39,7 +39,8 @@ struct FreeSlipWalls end
 $(TYPEDEF)
 
 Tangential no-slip condition on `Bounded` walls: the velocity along the wall is zero at the wall, imposed
-with a mirror ghost so the shear strain rate at a wall corner is the one-sided `u / (Δy / 2) / 2`.
+with a mirror ghost so the shear strain rate at a wall corner is the one-sided `u / (Δy / 2) / 2`. Here `Δy`
+is the width of the cell next to the wall, which `Bounded` halos copy, so the condition holds on stretched grids.
 """
 struct NoSlipWalls end
 
