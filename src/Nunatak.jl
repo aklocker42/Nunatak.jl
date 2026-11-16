@@ -1,6 +1,7 @@
 module Nunatak
 
 export SigmaGrid, sigma_faces
+export TriangleMesh, NodeField, ElementField
 export IceSheetModel
 export DepthIntegrated, DIVAShear, FreeSlipWalls, NoSlipWalls, ShallowIce, ShallowIceSolver
 export GlenFlowLaw, ArrheniusRateFactor
@@ -24,7 +25,7 @@ using Oceananigans: AbstractModel
 using Oceananigans.Advection: div_Uc, UpwindBiased, BoundsPreservingWENO, materialize_advection, update_bounds_preserving_limiter!,
                              _advective_tracer_flux_x, _advective_tracer_flux_y, _biased_interpolate_xᶠᵃᵃ, _biased_interpolate_yᵃᶠᵃ,
                              LeftBias, RightBias, upwind_biased_product, rescaled_reconstruction
-using Oceananigans.Architectures: on_architecture
+using Oceananigans.Architectures: on_architecture, device, convert_to_device
 using Oceananigans.Fields: interior, ZeroField
 using Oceananigans.Grids: AbstractGrid, RectilinearGrid, Flat, Bounded, Periodic, topology, xnode, ynode, halo_size, znode,
                           cpu_face_constructor_x, cpu_face_constructor_y, pop_flat_elements, peripheral_node, inactive_cell
@@ -33,7 +34,7 @@ using Oceananigans.Operators: δxᶠᶜᶜ, δyᶠᶜᶜ, δxᶜᶠᶜ, δyᶜ�
                               Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δxᶠᶜᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ, Δyᶜᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Az, Azᶠᶜᶜ, Azᶜᶠᶜ, Azᶜᶜᶜ, Axᶠᶜᶜ, Ayᶜᶠᶜ, Vᶜᶜᶜ, δxᶜᵃᵃ, δyᵃᶜᵃ,
                               ℑxᶠᵃᵃ, ℑyᵃᶠᵃ, ℑxᶜᵃᵃ, ℑyᵃᶜᵃ, ℑxyᶜᶜᵃ, ℑxyᶠᶠᵃ, ℑxyᶠᶜᵃ, ℑxyᶜᶠᵃ
 using Oceananigans.TimeSteppers: TimeStepper, Clock, SplitRungeKuttaTimeStepper
-using Oceananigans.Utils: launch!, prettysummary
+using Oceananigans.Utils: prettysummary
 
 import Oceananigans.Advection: cell_advection_timescale
 import Oceananigans.Diagnostics: cell_diffusion_timescale
@@ -44,10 +45,11 @@ import Oceananigans.Fields: set!
 import Oceananigans.OutputWriters: checkpointer_address, default_included_properties
 import Oceananigans.Simulations: iteration
 import Oceananigans.TimeSteppers: update_state!, reset!, cache_current_fields!, rk_substep!
-import Oceananigans.Utils: prettytime
+import Oceananigans.Utils: prettytime, launch!
 
 include("Grids/sigma_grid.jl")
 include("Fields/parameter_fields.jl")
+include("Meshes/triangle_mesh.jl")
 include("StressBalances/depth_integrated.jl")
 include("StressBalances/column_integrals.jl")
 include("StressBalances/strain_rates.jl")
@@ -62,6 +64,7 @@ include("Models/ice_sheet_constants.jl")
 include("Groundings/subgrid_grounded_fraction.jl")
 include("Solvers/iteration_controls.jl")
 include("Solvers/velocity_vector.jl")
+include("Meshes/mesh_fields.jl")
 include("Solvers/conjugate_gradient.jl")
 include("StressBalances/diagonal_preconditioner.jl")
 include("StressBalances/multigrid_preconditioner.jl")
