@@ -50,7 +50,7 @@ The adjoint of the stress balance is not obtained by taping the solver's iterati
 The diagram shows which parts of a gradient Enzyme differentiates directly and where the custom rules take over.
 
 ```@raw html
-<svg class="nunatak-diagram" viewBox="0 0 720 498" role="img" aria-label="Forward and reverse passes of a gradient through the model" xmlns="http://www.w3.org/2000/svg">
+<div><svg class="nunatak-diagram" viewBox="0 0 720 498" role="img" aria-label="Forward and reverse passes of a gradient through the model" xmlns="http://www.w3.org/2000/svg">
 <defs><marker id="nd-head-adj" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="nd-head" d="M0,0 L10,5 L0,10 z"/></marker></defs>
 <rect class="nd-key" x="10" y="10" width="700" height="40" rx="6"/>
 <text class="nd-mono" x="360.0" y="26.5" text-anchor="middle">autodiff(Reverse, cost, Active, Duplicated(model, dmodel), …)</text>
@@ -106,7 +106,7 @@ The diagram shows which parts of a gradient Enzyme differentiates directly and w
 <text class="nd-mono" x="360.0" y="449.5" text-anchor="middle">checkpointed_gradient!</text>
 <text class="nd-note" x="360.0" y="465.5" text-anchor="middle">forward: store prognostic_state every checkpoint_interval steps</text>
 <text class="nd-note" x="360.0" y="481.5" text-anchor="middle">reverse: restore each checkpoint and differentiate its segment, last first, into dmodel</text>
-</svg>
+</svg></div>
 ```
 
 ## Through time: checkpointed gradients
