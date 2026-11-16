@@ -89,10 +89,69 @@ function plot_mismip_plus(dir; output = "mismip_plus")
     return fig
 end
 
+function plot_halfpipe_adjoint(dir; output = "halfpipe_streamice_adjoint")
+    g = read_table(joinpath(dir, output * "_gradient.csv"))
+    i = g["i"]
+
+    fig = Figure(size = (900, 360))
+    ax = Axis(fig[1, 1]; xlabel = "cell i along the centerline", ylabel = "∂J/∂(basal melt) (a/m)",
+              title = "Gradient at the check cells")
+    scatter!(ax, i, g["streamice_adjoint"]; label = "STREAMICE adjoint", color = :black, marker = :rect, markersize = 14)
+    scatter!(ax, i, g["streamice_finite_difference"]; label = "STREAMICE finite difference", color = :gray, marker = :cross, markersize = 14)
+    scatter!(ax, i, g["nunatak_adjoint"]; label = "Nunatak adjoint", markersize = 10)
+    scatter!(ax, i, g["nunatak_finite_difference"]; label = "Nunatak finite difference", marker = :xcross, markersize = 12)
+    axislegend(ax; position = :lb)
+    ax = Axis(fig[1, 2]; xlabel = "cell i along the centerline", ylabel = "relative difference", title = "Consistency")
+    scatter!(ax, i, g["nunatak_adjoint"] ./ g["nunatak_finite_difference"] .- 1; label = "Nunatak adjoint / finite difference − 1")
+    scatter!(ax, i, g["nunatak_adjoint"] ./ g["streamice_adjoint"] .- 1; label = "Nunatak / STREAMICE adjoint − 1", marker = :rect)
+    axislegend(ax; position = :rt)
+    save(joinpath(figures, output * "_gradient.png"), fig)
+    return fig
+end
+
+function plot_kleiner2015_a(dir; output = "kleiner2015_a")
+    s = read_table(joinpath(dir, output * "_timeseries.csv"))
+    t = s["t_years"] ./ 1e3
+    cooling = 150 .<= t .<= 160
+
+    fig = Figure(size = (900, 360))
+    ax = Axis(fig[1, 1]; xlabel = "t (ka)", ylabel = "basal melt (m/a w.e.)", title = "Melt rate after the surface cooling at 150 ka")
+    lines!(ax, t[cooling], s["melt_exact_we_m_per_a"][cooling]; label = "analytic", color = :black)
+    lines!(ax, t[cooling], s["melt_we_m_per_a"][cooling]; label = "Nunatak", linestyle = :dash)
+    axislegend(ax; position = :rt)
+    ax = Axis(fig[1, 2]; xlabel = "t (ka)", ylabel = "basal water (m w.e.)", title = "Basal water layer over the cycle")
+    lines!(ax, t, s["water_we_m"])
+    save(joinpath(figures, output * "_melt_and_water.png"), fig)
+    return fig
+end
+
+function plot_kleiner2015_b(dir; output = "kleiner2015_b")
+    p = read_table(joinpath(dir, output * "_profile.csv"))
+    table = read_table(joinpath(dir, output * "_transition.csv"))
+    analytic_height = table["transition_height_m"][1] - table["height_error_m"][1]
+
+    fig = Figure(size = (900, 360))
+    ax = Axis(fig[1, 1]; xlabel = "enthalpy (kJ/kg)", ylabel = "ζ", title = "Steady profile, Nσ = 100, ratio 10⁻³")
+    lines!(ax, p["enthalpy_exact_J_per_kg"] ./ 1e3, p["zeta"]; label = "analytic", color = :black)
+    scatter!(ax, p["enthalpy_J_per_kg"] ./ 1e3, p["zeta"]; label = "Nunatak", markersize = 5)
+    axislegend(ax; position = :rt)
+    ax = Axis(fig[1, 2]; xlabel = "Nσ", ylabel = "cold-temperate transition height (m)", xscale = log10, title = "Transition height")
+    hlines!(ax, [analytic_height]; label = "analytic", color = :black)
+    for ratio in unique(table["diffusivity_ratio"])
+        rows = table["diffusivity_ratio"] .== ratio
+        scatterlines!(ax, table["Nsigma"][rows], table["transition_height_m"][rows]; label = "ratio $(ratio)")
+    end
+    axislegend(ax; position = :rt)
+    save(joinpath(figures, output * "_profile_and_transition.png"), fig)
+    return fig
+end
+
 function plot_benchmarks(dir = pwd())
     mkpath(figures)
     for (file, plot) in (("halfar_timeseries.csv", plot_halfar), ("halfpipe_streamice_timeseries.csv", plot_halfpipe),
-                         ("eismint2_a_timeseries.csv", plot_eismint2_a), ("mismip_plus_timeseries.csv", plot_mismip_plus))
+                         ("eismint2_a_timeseries.csv", plot_eismint2_a), ("mismip_plus_timeseries.csv", plot_mismip_plus),
+                         ("halfpipe_streamice_adjoint_gradient.csv", plot_halfpipe_adjoint),
+                         ("kleiner2015_a_timeseries.csv", plot_kleiner2015_a), ("kleiner2015_b_profile.csv", plot_kleiner2015_b))
         isfile(joinpath(dir, file)) ? plot(dir) : @info "No $(file) in $(dir); skipping."
     end
     return nothing

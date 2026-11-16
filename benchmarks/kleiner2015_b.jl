@@ -1,6 +1,6 @@
 # Steady polythermal slab with prescribed strain heating (Kleiner et al., 2015, Exp B):
 # compare the cold-temperate transition surface with the analytic solution.
-using Oceananigans, Oceananigans.Units, Nunatak, Printf
+using Oceananigans, Oceananigans.Units, Nunatak, Printf, DelimitedFiles
 
 module SteadyPolythermalSlab
 
@@ -99,12 +99,20 @@ function steady_polythermal_slab(Nσ, ratio; Δt = 10year, stop_time = 30_000yea
     n = findfirst(>(0), Eₚₘ .- E)
     ζ = n == 1 ? zero(H) : ζᶜ[n-1] + (ζᶜ[n] - ζᶜ[n-1]) * (E[n-1] - Eₚₘ) / (E[n-1] - E[n])
     error = maximum(abs, E .- SteadyPolythermalSlab.enthalpy.(ζᶜ)) / c
-    return (; Nσ, ratio, height = ζ * H, height_error = (ζ - ζₘ) * H, error)
+    return (; Nσ, ratio, height = ζ * H, height_error = (ζ - ζₘ) * H, error, ζ = ζᶜ, E)
 end
 
 @printf("analytic transition height %.3f m\n", ζₘ * H)
 @printf("%5s %7s %12s %12s %14s\n", "Nσ", "ratio", "height (m)", "error (m)", "max|ΔE|/c (K)")
+rows = NTuple{5, Float64}[]
 for Nσ in (20, 40, 100, 400), ratio in (1e-1, 1e-2, 1e-3, 1e-4)
     r = steady_polythermal_slab(Nσ, ratio)
+    push!(rows, (r.Nσ, r.ratio, r.height, r.height_error, r.error))
     @printf("%5d %7.0e %12.3f %12.3f %14.4e\n", r.Nσ, r.ratio, r.height, r.height_error, r.error)
 end
+writedlm("kleiner2015_b_transition.csv", [["Nsigma" "diffusivity_ratio" "transition_height_m" "height_error_m" "max_enthalpy_error_K"];
+                                          reduce(vcat, [permutedims(collect(r)) for r in rows])], ',')
+
+profile = steady_polythermal_slab(100, 1e-3)
+writedlm("kleiner2015_b_profile.csv", [["zeta" "enthalpy_J_per_kg" "enthalpy_exact_J_per_kg"];
+                                       hcat(profile.ζ, profile.E, SteadyPolythermalSlab.enthalpy.(profile.ζ))], ',')

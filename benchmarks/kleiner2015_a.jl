@@ -17,7 +17,7 @@ function cooling_melt_rate(t; Nmodes = 20_000)
     return (qᵍ + k * ∂T∂z) / (ρw * L) * year
 end
 
-function surface_temperature_cycle(; Nσ = 100, Δt = 10years, output = "kleiner2015_a.csv")
+function surface_temperature_cycle(; Nσ = 100, Δt = 10years, output = "kleiner2015_a_timeseries.csv")
     grid = RectilinearGrid(CPU(); size = (1, 1), x = (0, 1e3), y = (0, 1e3), topology = (Periodic, Periodic, Flat))
     thermodynamics = EnthalpyThermodynamics(grid; geothermal_flux = qᵍ, surface_temperature = Tc, heat_capacity = c,
                                             thermal_conductivity = k, latent_heat = L, clausius_clapeyron = β,

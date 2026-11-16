@@ -13,7 +13,7 @@ distance(x, y) = sqrt((x - x₀)^2 + (y - y₀)^2) / kilometer
 accumulation(x, y) = min(Mₘₐₓ, Sᵦ * (Rₑₗ - distance(x, y))) / year
 surface_air_temperature(x, y) = Tₘᵢₙ + Sₜ * distance(x, y)
 
-function eismint2_a(; arch = CPU(), stress_balance = ShallowIce(), Nσ = 20, Δt = 5years, stop_time = 200_000years,
+function eismint2_a(; arch = CPU(), stress_balance = ShallowIce(), Nσ = 20, Δt = 2.5years, stop_time = 200_000years,
                       report_interval = 1000years, output = "eismint2_a")
     Δx = 25kilometers
     grid = RectilinearGrid(arch; size = (61, 61), halo = (4, 4), x = (-Δx / 2, 1500kilometers + Δx / 2), y = (-Δx / 2, 1500kilometers + Δx / 2),

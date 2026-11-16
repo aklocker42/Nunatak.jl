@@ -72,7 +72,7 @@ function adjoint_cost(model, xx, weights, Δt, year)
     return J + thickness_cost(model)
 end
 
-function halfpipe_streamice_adjoint(; arch = CPU(), Nσ = 10, Δt = 0.2year, ϵ = 0.1)
+function halfpipe_streamice_adjoint(; arch = CPU(), Nσ = 10, Δt = 0.2year, ϵ = 0.1, output = "halfpipe_streamice_adjoint")
     xx = zeros(Nx, Ny)
     model = halfpipe_adjoint_model(; arch, Nσ)
     dmodel = Enzyme.make_zero(model)
@@ -90,6 +90,10 @@ function halfpipe_streamice_adjoint(; arch = CPU(), Nσ = 10, Δt = 0.2year, ϵ 
         @printf("(%2d, %2d)  Nunatak ad % .6e  fd % .6e  STREAMICE ad % .6e  fd % .6e  Nunatak/STREAMICE %.4f\n",
                 rows[end]..., dxx[i, j] / streamice_adjoint_gradient[k])
         flush(stdout)
+    end
+    open(output * "_gradient.csv", "w") do io
+        println(io, "i,j,nunatak_adjoint,nunatak_finite_difference,streamice_adjoint,streamice_finite_difference")
+        foreach(r -> println(io, join(r, ",")), rows)
     end
     return (; cost = J, rows)
 end

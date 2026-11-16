@@ -75,11 +75,80 @@ Sea level is at ``z = 0``. From ``H`` and the bed ``b`` the model diagnoses
 ## One time step
 
 `IceSheetModel` works with Oceananigans' `Simulation`, `run!`, output writers, `Checkpointer` and
-`TimeStepWizard`. Each step, `time_step!(model, Δt)` advances the thickness with a split Runge–Kutta scheme (three stages by default). After
-the final stage a [`PartialCellFront`](@ref) advances the calving front. `update_state!` then
+`TimeStepWizard`. Each step, `time_step!(model, Δt)` advances the thickness with a split Runge–Kutta scheme (three stages by default).
+Every stage restarts from the thickness at the start of the step, and in the final stage a [`PartialCellFront`](@ref) advances
+the calving front. After every stage `update_state!`
 
 1. diagnoses the geometry from the new thickness,
 2. solves the stress balance for the velocities, when the velocity solver's `schedule` actuates,
-3. advances the enthalpy by one implicit column step, when thermodynamics are present.
+3. advances the enthalpy by one implicit column step, in the final stage only, when thermodynamics are present.
 
-The velocities used during a step are therefore those of the geometry at the start of the step.
+Each stage therefore uses the velocities of the previous stage's thickness, and the first stage those left by the previous step.
+
+```@raw html
+<svg class="nunatak-diagram" viewBox="0 0 720 742" role="img" aria-label="Call sequence of one IceSheetModel time step" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="nd-head-step" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="nd-head" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+<rect class="nd-key" x="10" y="10" width="700" height="40" rx="6"/>
+<text class="nd-mono" x="360.0" y="26.5" text-anchor="middle">time_step!(model, Δt)</text>
+<text class="nd-note" x="360.0" y="42.5" text-anchor="middle">Oceananigans split Runge–Kutta, three stages by default</text>
+<line class="nd-arrow" x1="360" y1="50" x2="360" y2="64" marker-end="url(#nd-head-step)"/>
+<rect class="nd-box" x="10" y="64" width="700" height="28" rx="6"/>
+<text class="nd-mono" x="360.0" y="82.5" text-anchor="middle">cache_current_fields!   H⁻ = H</text>
+<line class="nd-arrow" x1="360" y1="92" x2="360" y2="112" marker-end="url(#nd-head-step)"/>
+<rect class="nd-frame" x="10" y="112" width="700" height="580" rx="8"/>
+<rect class="nd-tab" x="22" y="102" width="196.0" height="20" rx="4"/>
+<text class="nd-tabtext" x="30" y="116">for stage = 1, …, Nstages</text>
+<rect class="nd-box" x="30" y="132" width="660" height="62" rx="6"/>
+<text class="nd-mono" x="360.0" y="151.5" text-anchor="middle">rk_substep!</text>
+<text class="nd-mono" x="360.0" y="167.5" text-anchor="middle">compute_thickness_tendency!   G = a − m − mᵍ − ∇⋅(ūH)</text>
+<text class="nd-mono" x="360.0" y="183.5" text-anchor="middle">H = max(H⁻ + Δτ G, 0)      final stage, PartialCellFront: advance_front!</text>
+<line class="nd-arrow" x1="360" y1="194" x2="360" y2="206" marker-end="url(#nd-head-step)"/>
+<rect class="nd-box" x="30" y="206" width="660" height="26" rx="6"/>
+<text class="nd-note" x="360.0" y="223.5" text-anchor="middle">clock moves to the stage time</text>
+<line class="nd-arrow" x1="360" y1="232" x2="360" y2="258" marker-end="url(#nd-head-step)"/>
+<rect class="nd-subframe" x="30" y="258" width="660" height="418" rx="8"/>
+<rect class="nd-tab" x="42" y="248" width="109.60000000000001" height="20" rx="4"/>
+<text class="nd-tabtext" x="50" y="262">update_state!</text>
+<rect class="nd-box" x="50" y="276" width="620" height="42" rx="6"/>
+<text class="nd-mono" x="360.0" y="293.5" text-anchor="middle">update_geometry_state!   →   update_geometry!</text>
+<text class="nd-note" x="360.0" y="309.5" text-anchor="middle">surface s, grounded fractions φ, φᵘ, φᵛ, effective pressure N, ice mask</text>
+<line class="nd-arrow" x1="360" y1="318" x2="360" y2="332" marker-end="url(#nd-head-step)"/>
+<rect class="nd-box" x="50" y="332" width="620" height="42" rx="6"/>
+<text class="nd-mono" x="360.0" y="349.5" text-anchor="middle">maybe_update_velocities!   →   update_velocities!(model, solver, stress_balance)</text>
+<text class="nd-note" x="360.0" y="365.5" text-anchor="middle">when solver.schedule(model) actuates; dispatch on the stress balance</text>
+<line class="nd-arrow" x1="360" y1="374" x2="140.0" y2="390" marker-end="url(#nd-head-step)"/>
+<rect class="nd-branch" x="50" y="390" width="180" height="86" rx="6"/>
+<text class="nd-note" x="140.0" y="413.5" text-anchor="middle">SSA</text>
+<text class="nd-mono" x="140.0" y="429.5" text-anchor="middle">compute_driving_stress!</text>
+<text class="nd-mono" x="140.0" y="445.5" text-anchor="middle">picard_solve!</text>
+<text class="nd-mono" x="140.0" y="461.5" text-anchor="middle">extend_depth_average!</text>
+<line class="nd-arrow" x1="360" y1="374" x2="336.0" y2="390" marker-end="url(#nd-head-step)"/>
+<rect class="nd-branch" x="242" y="390" width="188" height="86" rx="6"/>
+<text class="nd-note" x="336.0" y="413.5" text-anchor="middle">DIVA</text>
+<text class="nd-mono" x="336.0" y="429.5" text-anchor="middle">compute_driving_stress!</text>
+<text class="nd-mono" x="336.0" y="445.5" text-anchor="middle">picard_solve!</text>
+<text class="nd-mono" x="336.0" y="461.5" text-anchor="middle">compute_velocity_profile!</text>
+<line class="nd-arrow" x1="360" y1="374" x2="556.0" y2="390" marker-end="url(#nd-head-step)"/>
+<rect class="nd-branch" x="442" y="390" width="228" height="86" rx="6"/>
+<text class="nd-note" x="556.0" y="421.5" text-anchor="middle">ShallowIce</text>
+<text class="nd-mono" x="556.0" y="437.5" text-anchor="middle">compute_shallow_ice_velocities!</text>
+<text class="nd-mono" x="556.0" y="453.5" text-anchor="middle">compute_basal_drag!</text>
+<line class="nd-arrow" x1="140" y1="476" x2="140" y2="490" marker-end="url(#nd-head-step)"/>
+<line class="nd-arrow" x1="336" y1="476" x2="336" y2="490" marker-end="url(#nd-head-step)"/>
+<rect class="nd-key" x="50" y="490" width="380" height="70" rx="6"/>
+<text class="nd-mono" x="240.0" y="505.5" text-anchor="middle">picard_solve!   repeat until converged or N times</text>
+<text class="nd-mono" x="240.0" y="521.5" text-anchor="middle">update_*_coefficients!   ησ, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ</text>
+<text class="nd-mono" x="240.0" y="537.5" text-anchor="middle">solve!   conjugate gradients on ssa_operator!</text>
+<text class="nd-note" x="240.0" y="553.5" text-anchor="middle">preconditioner: Jacobi or multigrid V-cycle</text>
+<line class="nd-arrow" x1="360" y1="560" x2="360" y2="578" marker-end="url(#nd-head-step)"/>
+<rect class="nd-box" x="50" y="578" width="620" height="26" rx="6"/>
+<text class="nd-mono" x="360.0" y="595.5" text-anchor="middle">fill_velocity_halos!</text>
+<line class="nd-arrow" x1="360" y1="604" x2="360" y2="618" marker-end="url(#nd-head-step)"/>
+<rect class="nd-box" x="50" y="618" width="620" height="42" rx="6"/>
+<text class="nd-mono" x="360.0" y="635.5" text-anchor="middle">maybe_step_thermodynamics!   →   compute_strain_heating!   →   advance_enthalpy!</text>
+<text class="nd-note" x="360.0" y="651.5" text-anchor="middle">final stage only, when thermodynamics.schedule(model) actuates</text>
+<line class="nd-arrow" x1="360" y1="692" x2="360" y2="706" marker-end="url(#nd-head-step)"/>
+<rect class="nd-box" x="10" y="706" width="700" height="28" rx="6"/>
+<text class="nd-mono" x="360.0" y="724.5" text-anchor="middle">clock.iteration += 1</text>
+</svg>
+```

@@ -355,3 +355,20 @@ mjx-container svg path {
    margin: 0.33em 0.5em 0.5em 2.25em;}
   .citation ol li {
    padding-left:0.75em;}
+
+/* =========================
+   Call-sequence diagrams
+   ========================= */
+
+.nunatak-diagram { display: block; width: 100%; max-width: 720px; height: auto; margin: 1.5rem auto; }
+.nunatak-diagram .nd-box { fill: var(--vp-c-bg-soft); stroke: var(--vp-c-divider); }
+.nunatak-diagram .nd-key { fill: color-mix(in srgb, var(--vp-c-brand-1) 14%, var(--vp-c-bg)); stroke: var(--vp-c-brand-1); }
+.nunatak-diagram .nd-branch { fill: color-mix(in srgb, var(--vp-c-brand-3) 7%, var(--vp-c-bg)); stroke: var(--vp-c-brand-3); }
+.nunatak-diagram .nd-frame { fill: none; stroke: var(--vp-c-text-3); stroke-dasharray: 6 4; }
+.nunatak-diagram .nd-subframe { fill: none; stroke: var(--vp-c-text-3); }
+.nunatak-diagram .nd-tab { fill: var(--vp-c-bg); stroke: var(--vp-c-text-3); }
+.nunatak-diagram .nd-tabtext { fill: var(--vp-c-text-2); font: 600 12px var(--vp-font-family-base); }
+.nunatak-diagram .nd-mono { fill: var(--vp-c-text-1); font: 11.5px var(--vp-font-family-mono); }
+.nunatak-diagram .nd-note { fill: var(--vp-c-text-2); font: 12px var(--vp-font-family-base); }
+.nunatak-diagram .nd-arrow { stroke: var(--vp-c-text-3); stroke-width: 1.4; }
+.nunatak-diagram .nd-head { fill: var(--vp-c-text-3); }
