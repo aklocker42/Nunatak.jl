@@ -86,7 +86,7 @@ the calving front. After every stage `update_state!`
 Each stage therefore uses the velocities of the previous stage's thickness, and the first stage those left by the previous step.
 
 ```@raw html
-<svg class="nunatak-diagram" viewBox="0 0 720 742" role="img" aria-label="Call sequence of one IceSheetModel time step" xmlns="http://www.w3.org/2000/svg">
+<div><svg class="nunatak-diagram" viewBox="0 0 720 742" role="img" aria-label="Call sequence of one IceSheetModel time step" xmlns="http://www.w3.org/2000/svg">
 <defs><marker id="nd-head-step" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="nd-head" d="M0,0 L10,5 L0,10 z"/></marker></defs>
 <rect class="nd-key" x="10" y="10" width="700" height="40" rx="6"/>
 <text class="nd-mono" x="360.0" y="26.5" text-anchor="middle">time_step!(model, Δt)</text>
@@ -150,5 +150,5 @@ Each stage therefore uses the velocities of the previous stage's thickness, and 
 <line class="nd-arrow" x1="360" y1="692" x2="360" y2="706" marker-end="url(#nd-head-step)"/>
 <rect class="nd-box" x="10" y="706" width="700" height="28" rx="6"/>
 <text class="nd-mono" x="360.0" y="724.5" text-anchor="middle">clock.iteration += 1</text>
-</svg>
+</svg></div>
 ```
