@@ -15,6 +15,7 @@ include("toy_problems.jl")
     include("test_sigma_grid.jl")
     include("test_conjugate_gradient.jl")
     include("test_triangle_mesh.jl")
+    include("test_triangle_stress_balance.jl")
     include("test_ssa_operator.jl")
     include("test_glen_viscosity.jl")
     include("test_friction.jl")
@@ -32,6 +33,7 @@ include("toy_problems.jl")
 
     if arch isa CPU
         include("test_enzyme.jl")
+        include("test_triangle_enzyme.jl")
 
         @testset "Doctests" begin
             doctest(Nunatak; manual = false)
