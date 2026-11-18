@@ -6,21 +6,27 @@ direction unchanged once it can no longer be halved (semi-coarsening), and redis
 area-weighted average of `η̄H` and the restricted drag; `η̄Hᶠᶠ` is interpolated to the coarse corners as in the
 Picard coefficient update. Velocities are transferred on the C grid, linearly along each component's own direction
 and with 3/4–1/4 weights across it, and restriction is the transpose of prolongation.
-The smoother is ℓ1-Jacobi, whose diagonal bounds the absolute row sum of the operator, so every sweep is
-convergent and the V-cycle is symmetric positive definite, as conjugate gradients require. Wall and ice-free
+The smoother is ℓ1-Jacobi on points or, by default, on lines in `y`: each sweep solves the tridiagonal block of
+every line and adds the absolute couplings that leave it to the diagonal, so every sweep is convergent and the
+V-cycle is symmetric positive definite, as conjugate gradients require. Lines resolve the strong `y` coupling of
+cells stretched in `x` by semi-coarsening. Wall and ice-free
 velocity points are excluded from the transfers. The coarse coefficients are rebuilt at the start of every
 conjugate-gradient solve, so the preconditioner follows the coefficients through Picard iterations.
 
 $(TYPEDFIELDS)
 """
-struct StressBalanceMultigridPreconditioner{L, W}
+struct StressBalanceMultigridPreconditioner{L, W, T, S}
     "coarse levels, finest first, each a `NamedTuple` of grid, coefficients and work vectors"
     levels :: L
     "residual workspace on the finest grid"
     residual :: W
-    "ℓ1-Jacobi sweeps before and after each coarse-grid correction"
+    "line-solve workspace on the finest grid"
+    scratch :: T
+    "smoother, `PointJacobi()` or `LineJacobi()`"
+    smoother :: S
+    "smoothing sweeps before and after each coarse-grid correction"
     smoothing_sweeps :: Int
-    "ℓ1-Jacobi sweeps on the coarsest grid"
+    "smoothing sweeps on the coarsest grid"
     coarsest_sweeps :: Int
 end
 
@@ -29,7 +35,7 @@ $(TYPEDSIGNATURES)
 
 Build a `StressBalanceMultigridPreconditioner` on `grid`. A direction is halved while its size is even and the coarse
 grid keeps at least `minimum_coarse_size` cells, and no fewer cells than halo points, in that direction; coarsening
-stops when neither direction can be halved.
+stops when neither direction can be halved. `smoother` is `LineJacobi()` or `PointJacobi()`.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -47,11 +53,26 @@ julia> map(level -> size(level.grid), StressBalanceMultigridPreconditioner(flowl
 ((32, 4, 1), (16, 4, 1), (8, 4, 1), (4, 4, 1))
 ```
 """
-function StressBalanceMultigridPreconditioner(grid; smoothing_sweeps = 2, coarsest_sweeps = 20, minimum_coarse_size = 2)
+function StressBalanceMultigridPreconditioner(grid; smoother = LineJacobi(), smoothing_sweeps = 2, coarsest_sweeps = 20, minimum_coarse_size = 2)
     levels = coarse_levels(grid, minimum_coarse_size)
     isempty(levels) && @warn "$(size(grid)) grid cannot be halved; the multigrid preconditioner reduces to ℓ1-Jacobi sweeps"
-    return StressBalanceMultigridPreconditioner(levels, VelocityVector(grid), smoothing_sweeps, coarsest_sweeps)
+    scratch = Field{Center, Center, Nothing}(grid)
+    return StressBalanceMultigridPreconditioner(levels, VelocityVector(grid), scratch, smoother, smoothing_sweeps, coarsest_sweeps)
 end
+
+"""
+$(TYPEDEF)
+
+ℓ1-Jacobi smoother on single velocity points for `StressBalanceMultigridPreconditioner`.
+"""
+struct PointJacobi end
+
+"""
+$(TYPEDEF)
+
+ℓ1-block Jacobi smoother on lines in `y` for `StressBalanceMultigridPreconditioner`.
+"""
+struct LineJacobi end
 
 struct Halved end
 struct Unchanged end
@@ -79,7 +100,8 @@ function coarse_levels(grid, cx, cy, minimum_coarse_size)
              βᵛ = Field{Center, Face, Nothing}(coarse),
              x = VelocityVector(coarse),
              b = VelocityVector(coarse),
-             q = VelocityVector(coarse))
+             q = VelocityVector(coarse),
+             scratch = Field{Center, Center, Nothing}(coarse))
     return (level, coarse_levels(coarse, minimum_coarse_size)...)
 end
 
@@ -96,7 +118,7 @@ end
 
 function precondition!(z::VelocityVector, P::StressBalanceMultigridPreconditioner, r::VelocityVector, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, args...)
     walls = side_walls(args...)
-    v_cycle!(z, r, P.residual, (; η̄H, η̄Hᶠᶠ, βᵘ, βᵛ), P.levels, walls, P)
+    v_cycle!(z, r, P.residual, P.scratch, (; η̄H, η̄Hᶠᶠ, βᵘ, βᵛ), P.levels, walls, P)
     return nothing
 end
 
@@ -115,38 +137,44 @@ function coarsen_coefficients!(levels::Tuple, η̄H, βᵘ, βᵛ)
     return coarsen_coefficients!(Base.tail(levels), level.η̄H, level.βᵘ, level.βᵛ)
 end
 
-# `x ≈ A⁻¹ b` from a zero initial guess; `q` is workspace on the same grid.
-function v_cycle!(x, b, q, coefficients, ::Tuple{}, walls, P)
+# `x ≈ A⁻¹ b` from a zero initial guess; `q` and `t` are workspace on the same grid.
+function v_cycle!(x, b, q, t, coefficients, ::Tuple{}, walls, P)
     fill!(x, 0)
-    smooth!(x, b, q, coefficients, walls, P.coarsest_sweeps)
+    smooth!(x, b, q, t, coefficients, walls, P.smoother, P.coarsest_sweeps)
     return nothing
 end
 
-function v_cycle!(x, b, q, coefficients, levels::Tuple, walls, P)
+function v_cycle!(x, b, q, t, coefficients, levels::Tuple, walls, P)
     coarse = first(levels)
     fill!(x, 0)
-    smooth!(x, b, q, coefficients, walls, P.smoothing_sweeps)
+    smooth!(x, b, q, t, coefficients, walls, P.smoother, P.smoothing_sweeps)
     fill_halo_regions!(x)
     ssa_operator!(q, x, coefficients.η̄H, coefficients.η̄Hᶠᶠ, coefficients.βᵘ, coefficients.βᵛ, walls)
     subtract!(q, b, q)
     restrict!(coarse.b, q, coarse.η̄H, coefficients.η̄H, coarse.coarsening)
     coarse_coefficients = (η̄H = coarse.η̄H, η̄Hᶠᶠ = coarse.η̄Hᶠᶠ, βᵘ = coarse.βᵘ, βᵛ = coarse.βᵛ)
-    v_cycle!(coarse.x, coarse.b, coarse.q, coarse_coefficients, Base.tail(levels), walls, P)
+    v_cycle!(coarse.x, coarse.b, coarse.q, coarse.scratch, coarse_coefficients, Base.tail(levels), walls, P)
     prolongate!(x, coarse.x, coefficients.η̄H, coarse.η̄H, coarse.coarsening)
-    smooth!(x, b, q, coefficients, walls, P.smoothing_sweeps)
+    smooth!(x, b, q, t, coefficients, walls, P.smoother, P.smoothing_sweeps)
     return nothing
 end
 
-function smooth!(x, b, q, coefficients, walls, sweeps)
+function smooth!(x, b, q, t, coefficients, walls, smoother, sweeps)
     (; η̄H, η̄Hᶠᶠ, βᵘ, βᵛ) = coefficients
     grid = η̄H.grid
     for _ in 1:sweeps
         fill_halo_regions!(x)
         ssa_operator!(q, x, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls)
-        launch!(architecture(grid), grid, :xyz, _smooth!, x.u, x.v, b.u, b.v, q.u, q.v, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls, grid)
+        relax!(x, b, q, t, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls, grid, smoother)
     end
     return nothing
 end
+
+relax!(x, b, q, t, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls, grid, ::PointJacobi) =
+    launch!(architecture(grid), grid, :xyz, _smooth!, x.u, x.v, b.u, b.v, q.u, q.v, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls, grid)
+
+relax!(x, b, q, t, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls, grid, ::LineJacobi) =
+    launch!(architecture(grid), grid, :xz, _line_smooth!, x.u, x.v, b.u, b.v, q.u, q.v, t, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls, grid)
 
 function restrict!(coarse, fine, coarse_η̄H, fine_η̄H, coarsening)
     grid = coarse_η̄H.grid
@@ -185,6 +213,46 @@ end
         xu[i, j, k] += (bu[i, j, k] - qu[i, j, k]) / x_absolute_row_sum(i, j, k, grid, η̄H, η̄Hᶠᶠ, βᵘ, walls)
         xv[i, j, k] += (bv[i, j, k] - qv[i, j, k]) / y_absolute_row_sum(i, j, k, grid, η̄H, η̄Hᶠᶠ, βᵛ, walls)
     end
+end
+
+# ℓ1-block Jacobi on y lines: the tridiagonal block of each line plus, on its diagonal, the absolute couplings
+# leaving the line, so `M ≥ A` as for point ℓ1-Jacobi. Couplings to inactive points are zero in the operator.
+@inline x_line_coupling(i, j, k, grid, η̄H, η̄Hᶠᶠ, βᵘ, walls) =
+    ifelse(inactiveᶠᶜᶜ(i, j-1, k, grid, η̄H) | inactiveᶠᶜᶜ(i, j, k, grid, η̄H), zero(grid), x_shear_diagonal(i, j, k, grid, η̄Hᶠᶠ, walls))
+
+@inline y_line_coupling(i, j, k, grid, η̄H, η̄Hᶠᶠ, βᵛ, walls) =
+    ifelse(inactiveᶜᶠᶜ(i, j-1, k, grid, η̄H) | inactiveᶜᶠᶜ(i, j, k, grid, η̄H), zero(grid), y_normal_diagonal(i, j-1, k, grid, η̄H))
+
+# Thomas algorithm for `M δ = b - q` along `j`, with diagonal `s - cⱼ - cⱼ₊₁` and off-diagonals `-c`;
+# `t` keeps the eliminated upper diagonal and `q` the eliminated right-hand side.
+@inline function line_relax!(x, b, q, t, i, k, grid, absolute_row_sum, line_coupling, coefficients...)
+    Ny = size(grid, 2)
+    FT = eltype(grid)
+    cⱼ = zero(FT)
+    tⱼ = zero(FT)
+    dⱼ = zero(FT)
+    for j in 1:Ny
+        s = absolute_row_sum(i, j, k, grid, coefficients...)
+        cⱼ₊₁ = ifelse(j == Ny, zero(FT), line_coupling(i, j+1, k, grid, coefficients...))
+        m = s - cⱼ - cⱼ₊₁ + cⱼ * tⱼ
+        @inbounds dⱼ = (b[i, j, k] - q[i, j, k] + cⱼ * dⱼ) / m
+        tⱼ = -cⱼ₊₁ / m
+        @inbounds t[i, j, k] = tⱼ
+        @inbounds q[i, j, k] = dⱼ
+        cⱼ = cⱼ₊₁
+    end
+    δ = zero(FT)
+    for j in Ny:-1:1
+        @inbounds δ = q[i, j, k] - t[i, j, k] * δ
+        @inbounds x[i, j, k] += δ
+    end
+    return nothing
+end
+
+@kernel function _line_smooth!(xu, xv, bu, bv, qu, qv, t, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls, grid)
+    i, k = @index(Global, NTuple)
+    line_relax!(xu, bu, qu, t, i, k, grid, x_absolute_row_sum, x_line_coupling, η̄H, η̄Hᶠᶠ, βᵘ, walls)
+    line_relax!(xv, bv, qv, t, i, k, grid, y_absolute_row_sum, y_line_coupling, η̄H, η̄Hᶠᶠ, βᵛ, walls)
 end
 
 # Fine faces `2I - 1 + a`, `a ∈ -1:1`, restrict onto coarse face `I` with weights 1/2, 1, 1/2; fine centers

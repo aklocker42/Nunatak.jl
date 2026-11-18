@@ -30,9 +30,10 @@ operator is integrated over its velocity cell, so the operator is symmetric posi
 - [`JacobiPreconditioner`](@ref): a stored diagonal;
 - [`StressBalanceDiagonalPreconditioner`](@ref) (the default): the operator diagonal evaluated from the current
   coefficients, so it follows the Picard iterations without storage;
-- `StressBalanceMultigridPreconditioner`: a geometric multigrid V-cycle. Each level halves the grid and
-  rediscretizes the operator, and the smoother is ℓ1-Jacobi, so the V-cycle stays symmetric positive definite. It
-  pays off on large grids.
+- [`StressBalanceMultigridPreconditioner`](@ref): a geometric multigrid V-cycle. Each level halves the grid in
+  `x`, `y` or both and rediscretizes the operator. The smoother is ℓ1-Jacobi on lines in `y` ([`LineJacobi`](@ref),
+  the default) or on points ([`PointJacobi`](@ref)), so the V-cycle stays symmetric positive definite. It pays off
+  on large grids.
 
 The `schedule` of the solver (default `IterationInterval(1)`) can skip velocity solves between time steps.
 

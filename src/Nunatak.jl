@@ -9,7 +9,7 @@ export WeertmanFriction, RegularizedCoulombFriction
 export SubgridGroundedFraction, IceSheetConstants, SmoothIceMask, PartialCellFront
 export StressBalanceSolver
 export VelocityVector, VelocityConjugateGradientSolver, JacobiPreconditioner, StressBalanceDiagonalPreconditioner,
-       StressBalanceMultigridPreconditioner
+       StressBalanceMultigridPreconditioner, PointJacobi, LineJacobi
 export Convergence, FixedIterations, PicardIteration
 export solve!, adjoint_solve!, precondition!, picard_solve!
 export checkpointed_gradient!

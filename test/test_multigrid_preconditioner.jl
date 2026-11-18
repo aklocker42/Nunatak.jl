@@ -52,10 +52,14 @@ end
 
             r₁, r₂ = smooth_vector(grid, 1), smooth_vector(grid, 2)
             z₁, z₂ = VelocityVector(grid), VelocityVector(grid)
-            precondition!(z₁, P, r₁, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, FreeSlipWalls())
-            precondition!(z₂, P, r₂, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, FreeSlipWalls())
-            @test solved_dot(z₁, r₂) ≈ solved_dot(r₁, z₂) rtol = 1e-10
-            @test solved_dot(z₁, r₁) > 0
+            for smoother in (PointJacobi(), LineJacobi()), walls in (FreeSlipWalls(), NoSlipWalls())
+                P = StressBalanceMultigridPreconditioner(grid; smoother)
+                coarsen_coefficients!(P.levels, η̄H, βᵘ, βᵛ)
+                precondition!(z₁, P, r₁, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls)
+                precondition!(z₂, P, r₂, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls)
+                @test solved_dot(z₁, r₂) ≈ solved_dot(r₁, z₂) rtol = 1e-10
+                @test solved_dot(z₁, r₁) > 0
+            end
         end
     end
 
