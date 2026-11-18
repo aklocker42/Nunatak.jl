@@ -14,6 +14,7 @@ such comparisons.
 | `mismip_plus.jl` | Marine ice stream on a retrograde bed: spin-up, Ice1r, Ice1ra, Ice2r, Ice2ra | [AsayDavis2016](@citet); STREAMICE in [Cornford2020](@citet) |
 | `kleiner2015_a.jl` | Slab under a surface temperature cycle, basal melt and refreezing | [Kleiner2015](@citet), experiment A |
 | `kleiner2015_b.jl` | Steady polythermal slab, cold-temperate transition surface | [Kleiner2015](@citet), experiment B |
+| `square_shelf_triangle.jl` | Confined square ice shelf on unstructured triangle meshes | DJUICE / ISSM `test101` |
 
 ## Halfpipe against STREAMICE
 
@@ -30,3 +31,20 @@ front that advances through partially filled cells. Nunatak against STREAMICE ru
 
 On the same geometry, the maximum speeds of the two models agree to 0.4%. STREAMICE's speed alternates between high
 and low values from one step to the next, so per-step speeds are not compared.
+
+## Square ice shelf on triangles against DJUICE
+
+The ISSM/DJUICE `test101` case: a 1000 km square floating shelf, isothermal Glen's law with ``B = 1.8157 \times
+10^8`` Pa s``^{1/3}``, no friction and zero velocity on the whole boundary. Nunatak runs on the exact meshes of DJUICE,
+read from `benchmarks/square_shelf_djuice_reference/`, and is compared with DJUICE velocities converged to a Picard
+tolerance of ``10^{-8}``. Timings are on four CPU threads.
+
+| Mesh | Nodes | Relative L2 velocity error | Picard iterations | Last CG iterations | Solve time (s) |
+|---|---|---|---|---|---|
+| 50 km | 340 | 4.0e-6 | 49 | 119 | 0.97 |
+| 20 km | 2086 | 4.2e-6 | 49 | 308 | 4.39 |
+| 10 km | 8152 | 4.2e-6 | 49 | 623 | 16.6 |
+
+The remaining difference comes from the strain-rate regularisation of the viscosity, which DJUICE does not use: with
+`strain_rate_regularization = 1e-16` instead of the default ``10^{-13}`` s``^{-1}`` the error drops to 7.4e-9 on the
+50 km mesh and 1.4e-8 on the 20 km mesh.
