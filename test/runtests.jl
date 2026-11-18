@@ -14,6 +14,7 @@ include("toy_problems.jl")
 @testset "Nunatak" begin
     include("test_sigma_grid.jl")
     include("test_conjugate_gradient.jl")
+    include("test_triangle_mesh.jl")
     include("test_ssa_operator.jl")
     include("test_glen_viscosity.jl")
     include("test_friction.jl")
