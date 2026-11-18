@@ -1,10 +1,11 @@
 """
 $(TYPEDEF)
 
-Geometric multigrid V-cycle preconditioner for `ssa_operator!`. Each level halves `Nx` and `Ny` and rediscretizes
-the operator from the area-weighted average of `η̄H` and the restricted drag; `η̄Hᶠᶠ` is interpolated to the coarse
-corners as in the Picard coefficient update. Velocities are transferred on the C grid, linearly along each
-component's own direction and with 3/4–1/4 weights across it, and restriction is the transpose of prolongation.
+Geometric multigrid V-cycle preconditioner for `ssa_operator!`. Each level halves `Nx`, `Ny` or both, keeping a
+direction unchanged once it can no longer be halved (semi-coarsening), and rediscretizes the operator from the
+area-weighted average of `η̄H` and the restricted drag; `η̄Hᶠᶠ` is interpolated to the coarse corners as in the
+Picard coefficient update. Velocities are transferred on the C grid, linearly along each component's own direction
+and with 3/4–1/4 weights across it, and restriction is the transpose of prolongation.
 The smoother is ℓ1-Jacobi, whose diagonal bounds the absolute row sum of the operator, so every sweep is
 convergent and the V-cycle is symmetric positive definite, as conjugate gradients require. Wall and ice-free
 velocity points are excluded from the transfers. The coarse coefficients are rebuilt at the start of every
@@ -26,8 +27,9 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Build a `StressBalanceMultigridPreconditioner` on `grid`. The grid is halved while both `Nx` and `Ny` are even and
-the coarse grid keeps at least `minimum_coarse_size` cells, and no fewer cells than halo points, in each direction.
+Build a `StressBalanceMultigridPreconditioner` on `grid`. A direction is halved while its size is even and the coarse
+grid keeps at least `minimum_coarse_size` cells, and no fewer cells than halo points, in that direction; coarsening
+stops when neither direction can be halved.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -37,7 +39,12 @@ julia> grid = RectilinearGrid(size = (32, 16), x = (0, 1), y = (0, 1), topology 
 julia> P = StressBalanceMultigridPreconditioner(grid);
 
 julia> map(level -> size(level.grid), P.levels)
-((16, 8, 1), (8, 4, 1))
+((16, 8, 1), (8, 4, 1), (4, 4, 1))
+
+julia> flowline = RectilinearGrid(size = (64, 4), halo = (4, 4), x = (0, 1), y = (0, 1), topology = (Bounded, Bounded, Flat));
+
+julia> map(level -> size(level.grid), StressBalanceMultigridPreconditioner(flowline).levels)
+((32, 4, 1), (16, 4, 1), (8, 4, 1), (4, 4, 1))
 ```
 """
 function StressBalanceMultigridPreconditioner(grid; smoothing_sweeps = 2, coarsest_sweeps = 20, minimum_coarse_size = 2)
@@ -46,13 +53,26 @@ function StressBalanceMultigridPreconditioner(grid; smoothing_sweeps = 2, coarse
     return StressBalanceMultigridPreconditioner(levels, VelocityVector(grid), smoothing_sweeps, coarsest_sweeps)
 end
 
+struct Halved end
+struct Unchanged end
+
+coarsening_factor(::Halved) = 2
+coarsening_factor(::Unchanged) = 1
+
+coarsening(N, H, minimum_coarse_size) = ifelse(iseven(N) & (N ÷ 2 ≥ max(minimum_coarse_size, H)), Halved(), Unchanged())
+
 function coarse_levels(grid, minimum_coarse_size)
     Nx, Ny, _ = size(grid)
     Hx, Hy, _ = halo_size(grid)
-    coarsenable = iseven(Nx) & iseven(Ny) & (Nx ÷ 2 ≥ max(minimum_coarse_size, Hx)) & (Ny ÷ 2 ≥ max(minimum_coarse_size, Hy))
-    coarsenable || return ()
-    coarse = coarsened_grid(grid)
+    return coarse_levels(grid, coarsening(Nx, Hx, minimum_coarse_size), coarsening(Ny, Hy, minimum_coarse_size), minimum_coarse_size)
+end
+
+coarse_levels(grid, ::Unchanged, ::Unchanged, minimum_coarse_size) = ()
+
+function coarse_levels(grid, cx, cy, minimum_coarse_size)
+    coarse = coarsened_grid(grid, cx, cy)
     level = (grid = coarse,
+             coarsening = (cx, cy),
              η̄H = Field{Center, Center, Nothing}(coarse),
              η̄Hᶠᶠ = Field{Face, Face, Nothing}(coarse),
              βᵘ = Field{Face, Center, Nothing}(coarse),
@@ -63,14 +83,15 @@ function coarse_levels(grid, minimum_coarse_size)
     return (level, coarse_levels(coarse, minimum_coarse_size)...)
 end
 
-function coarsened_grid(grid)
+function coarsened_grid(grid, cx, cy)
     cpu_grid = on_architecture(CPU(), grid)
     Nx, Ny, _ = size(grid)
     Hx, Hy, _ = halo_size(grid)
     TX, TY, _ = topology(grid)
-    x = [xnode(i, cpu_grid, Face()) for i in 1:2:Nx+1]
-    y = [ynode(j, cpu_grid, Face()) for j in 1:2:Ny+1]
-    return RectilinearGrid(architecture(grid), eltype(grid); size = (Nx ÷ 2, Ny ÷ 2), halo = (Hx, Hy), x, y, topology = (TX, TY, Flat))
+    fx, fy = coarsening_factor(cx), coarsening_factor(cy)
+    x = [xnode(i, cpu_grid, Face()) for i in 1:fx:Nx+1]
+    y = [ynode(j, cpu_grid, Face()) for j in 1:fy:Ny+1]
+    return RectilinearGrid(architecture(grid), eltype(grid); size = (Nx ÷ fx, Ny ÷ fy), halo = (Hx, Hy), x, y, topology = (TX, TY, Flat))
 end
 
 function precondition!(z::VelocityVector, P::StressBalanceMultigridPreconditioner, r::VelocityVector, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, args...)
@@ -87,7 +108,7 @@ function coarsen_coefficients!(levels::Tuple, η̄H, βᵘ, βᵛ)
     level = first(levels)
     grid = level.grid
     arch = architecture(grid)
-    launch!(arch, grid, :xyz, _coarsen_coefficients!, level.η̄H, level.βᵘ, level.βᵛ, η̄H, βᵘ, βᵛ, grid, η̄H.grid)
+    launch!(arch, grid, :xyz, _coarsen_coefficients!, level.η̄H, level.βᵘ, level.βᵛ, η̄H, βᵘ, βᵛ, level.coarsening..., grid, η̄H.grid)
     fill_halo_regions!(level.η̄H)
     launch!(arch, grid, size(level.η̄Hᶠᶠ), _interpolate_to_corners!, level.η̄Hᶠᶠ, level.η̄H, grid)
     fill_halo_regions!(level.η̄Hᶠᶠ)
@@ -108,10 +129,10 @@ function v_cycle!(x, b, q, coefficients, levels::Tuple, walls, P)
     fill_halo_regions!(x)
     ssa_operator!(q, x, coefficients.η̄H, coefficients.η̄Hᶠᶠ, coefficients.βᵘ, coefficients.βᵛ, walls)
     subtract!(q, b, q)
-    restrict!(coarse.b, q, coarse.η̄H, coefficients.η̄H)
+    restrict!(coarse.b, q, coarse.η̄H, coefficients.η̄H, coarse.coarsening)
     coarse_coefficients = (η̄H = coarse.η̄H, η̄Hᶠᶠ = coarse.η̄Hᶠᶠ, βᵘ = coarse.βᵘ, βᵛ = coarse.βᵛ)
     v_cycle!(coarse.x, coarse.b, coarse.q, coarse_coefficients, Base.tail(levels), walls, P)
-    prolongate!(x, coarse.x, coefficients.η̄H, coarse.η̄H)
+    prolongate!(x, coarse.x, coefficients.η̄H, coarse.η̄H, coarse.coarsening)
     smooth!(x, b, q, coefficients, walls, P.smoothing_sweeps)
     return nothing
 end
@@ -127,15 +148,15 @@ function smooth!(x, b, q, coefficients, walls, sweeps)
     return nothing
 end
 
-function restrict!(coarse, fine, coarse_η̄H, fine_η̄H)
+function restrict!(coarse, fine, coarse_η̄H, fine_η̄H, coarsening)
     grid = coarse_η̄H.grid
-    launch!(architecture(grid), grid, :xyz, _restrict!, coarse.u, coarse.v, fine.u, fine.v, coarse_η̄H, fine_η̄H, grid, fine_η̄H.grid)
+    launch!(architecture(grid), grid, :xyz, _restrict!, coarse.u, coarse.v, fine.u, fine.v, coarse_η̄H, fine_η̄H, coarsening..., grid, fine_η̄H.grid)
     return nothing
 end
 
-function prolongate!(fine, coarse, fine_η̄H, coarse_η̄H)
+function prolongate!(fine, coarse, fine_η̄H, coarse_η̄H, coarsening)
     grid = fine_η̄H.grid
-    launch!(architecture(grid), grid, :xyz, _prolongate!, fine.u, fine.v, coarse.u, coarse.v, fine_η̄H, coarse_η̄H, grid, coarse_η̄H.grid)
+    launch!(architecture(grid), grid, :xyz, _prolongate!, fine.u, fine.v, coarse.u, coarse.v, fine_η̄H, coarse_η̄H, coarsening..., grid, coarse_η̄H.grid)
     return nothing
 end
 
@@ -168,37 +189,43 @@ end
 
 # Fine faces `2I - 1 + a`, `a ∈ -1:1`, restrict onto coarse face `I` with weights 1/2, 1, 1/2; fine centers
 # `2J - 1 + b`, `b ∈ -1:2`, onto coarse center `J` with weights 1/4, 3/4, 3/4, 1/4, folded at `Bounded` edges.
-@inline restriction_offsets(::Face) = -1:1
-@inline restriction_offsets(::Center) = -1:2
+# An `Unchanged` direction transfers point to point.
+@inline restriction_offsets(::Face, ::Halved) = -1:1
+@inline restriction_offsets(::Center, ::Halved) = -1:2
+@inline restriction_offsets(ℓ, ::Unchanged) = 0:0
 
-@inline restriction_index(I, a, N, ::Periodic, ℓ) = mod1(2I - 1 + a, N)
-@inline restriction_index(I, a, N, ::Bounded, ::Face) = max(2I - 1 + a, 1)
-@inline restriction_index(I, a, N, ::Bounded, ::Center) = clamp(2I - 1 + a, 1, N)
+@inline restriction_index(I, a, N, ::Periodic, ℓ, ::Halved) = mod1(2I - 1 + a, N)
+@inline restriction_index(I, a, N, ::Bounded, ::Face, ::Halved) = max(2I - 1 + a, 1)
+@inline restriction_index(I, a, N, ::Bounded, ::Center, ::Halved) = clamp(2I - 1 + a, 1, N)
+@inline restriction_index(I, a, N, topology, ℓ, ::Unchanged) = I
 
-@inline restriction_weight(I, a, Nc, ::Periodic, ::Face, FT) = ifelse(a == 0, one(FT), one(FT) / 2)
-@inline restriction_weight(I, a, Nc, ::Bounded, ::Face, FT) = ifelse(2I - 1 + a < 1, zero(FT), restriction_weight(I, a, Nc, Periodic(), Face(), FT))
-@inline restriction_weight(I, a, Nc, ::Periodic, ::Center, FT) = ifelse((a == 0) | (a == 1), 3 * one(FT) / 4, one(FT) / 4)
+@inline restriction_weight(I, a, Nc, ::Periodic, ::Face, ::Halved, FT) = ifelse(a == 0, one(FT), one(FT) / 2)
+@inline restriction_weight(I, a, Nc, ::Bounded, ::Face, ::Halved, FT) = ifelse(2I - 1 + a < 1, zero(FT), restriction_weight(I, a, Nc, Periodic(), Face(), Halved(), FT))
+@inline restriction_weight(I, a, Nc, ::Periodic, ::Center, ::Halved, FT) = ifelse((a == 0) | (a == 1), 3 * one(FT) / 4, one(FT) / 4)
+@inline restriction_weight(I, a, Nc, topology, ℓ, ::Unchanged, FT) = one(FT)
 
-@inline function restriction_weight(I, a, Nc, ::Bounded, ::Center, FT)
+@inline function restriction_weight(I, a, Nc, ::Bounded, ::Center, ::Halved, FT)
     outside = ((I == 1) & (a == -1)) | ((I == Nc) & (a == 2))
     folded = ((I == 1) & (a == 0)) | ((I == Nc) & (a == 1))
-    w = restriction_weight(I, a, Nc, Periodic(), Center(), FT) + ifelse(folded, one(FT) / 4, zero(FT))
+    w = restriction_weight(I, a, Nc, Periodic(), Center(), Halved(), FT) + ifelse(folded, one(FT) / 4, zero(FT))
     return ifelse(outside, zero(FT), w)
 end
 
 # Coarse parents of fine point `i` with their weights, the transpose of the restriction.
-@inline function parents(i, Nc, topology, ::Face, FT)
+@inline function parents(i, Nc, topology, ::Face, ::Halved, FT)
     I = (i + 1) ÷ 2
     odd = isodd(i)
     I⁺ = ifelse(odd, I, upper_face(I, Nc, topology))
     return I, I⁺, ifelse(odd, one(FT), one(FT) / 2), ifelse(odd, zero(FT), one(FT) / 2)
 end
 
-@inline function parents(i, Nc, topology, ::Center, FT)
+@inline function parents(i, Nc, topology, ::Center, ::Halved, FT)
     I = (i + 1) ÷ 2
     I′ = ifelse(isodd(i), I - 1, I + 1)
     return I, adjacent_center(I′, Nc, topology), 3 * one(FT) / 4, one(FT) / 4
 end
+
+@inline parents(i, Nc, topology, ℓ, ::Unchanged, FT) = i, i, one(FT), zero(FT)
 
 @inline upper_face(I, Nc, ::Periodic) = mod1(I + 1, Nc)
 @inline upper_face(I, Nc, ::Bounded) = I + 1
@@ -206,56 +233,57 @@ end
 @inline adjacent_center(I, Nc, ::Periodic) = mod1(I, Nc)
 @inline adjacent_center(I, Nc, ::Bounded) = clamp(I, 1, Nc)
 
-@inline function restrict(I, J, k, ℓx, ℓy, coarse_grid, fine_grid, ϕ, args...)
+@inline function restrict(I, J, k, ℓx, ℓy, cx, cy, coarse_grid, fine_grid, ϕ, args...)
     TX, TY, _ = topology(fine_grid)
     FT = eltype(fine_grid)
     s = zero(FT)
-    for a in restriction_offsets(ℓx), b in restriction_offsets(ℓy)
-        i = restriction_index(I, a, fine_grid.Nx, TX(), ℓx)
-        j = restriction_index(J, b, fine_grid.Ny, TY(), ℓy)
-        w = restriction_weight(I, a, coarse_grid.Nx, TX(), ℓx, FT) * restriction_weight(J, b, coarse_grid.Ny, TY(), ℓy, FT)
+    for a in restriction_offsets(ℓx, cx), b in restriction_offsets(ℓy, cy)
+        i = restriction_index(I, a, fine_grid.Nx, TX(), ℓx, cx)
+        j = restriction_index(J, b, fine_grid.Ny, TY(), ℓy, cy)
+        w = restriction_weight(I, a, coarse_grid.Nx, TX(), ℓx, cx, FT) * restriction_weight(J, b, coarse_grid.Ny, TY(), ℓy, cy, FT)
         s += w * ϕ(i, j, k, fine_grid, args...)
     end
     return s
 end
 
-@inline function prolongate(i, j, k, ℓx, ℓy, fine_grid, coarse_grid, ϕ, args...)
+@inline function prolongate(i, j, k, ℓx, ℓy, cx, cy, fine_grid, coarse_grid, ϕ, args...)
     TX, TY, _ = topology(fine_grid)
     FT = eltype(fine_grid)
-    I₁, I₂, wx₁, wx₂ = parents(i, coarse_grid.Nx, TX(), ℓx, FT)
-    J₁, J₂, wy₁, wy₂ = parents(j, coarse_grid.Ny, TY(), ℓy, FT)
+    I₁, I₂, wx₁, wx₂ = parents(i, coarse_grid.Nx, TX(), ℓx, cx, FT)
+    J₁, J₂, wy₁, wy₂ = parents(j, coarse_grid.Ny, TY(), ℓy, cy, FT)
     return wx₁ * (wy₁ * ϕ(I₁, J₁, k, coarse_grid, args...) + wy₂ * ϕ(I₁, J₂, k, coarse_grid, args...)) +
            wx₂ * (wy₁ * ϕ(I₂, J₁, k, coarse_grid, args...) + wy₂ * ϕ(I₂, J₂, k, coarse_grid, args...))
 end
 
 @inline area_weighted(i, j, k, grid, ϕ, ℓx, ℓy) = @inbounds Az(i, j, k, grid, ℓx, ℓy, Center()) * ϕ[i, j, k]
 
-@kernel function _coarsen_coefficients!(η̄H, βᵘ, βᵛ, fine_η̄H, fine_βᵘ, fine_βᵛ, grid, fine_grid)
+@kernel function _coarsen_coefficients!(η̄H, βᵘ, βᵛ, fine_η̄H, fine_βᵘ, fine_βᵛ, cx, cy, grid, fine_grid)
     I, J, k = @index(Global, NTuple)
-    i, j = 2I - 1, 2J - 1
+    fx, fy = coarsening_factor(cx), coarsening_factor(cy)
+    i, j = fx * (I - 1) + 1, fy * (J - 1) + 1
     @inbounds begin
         Σ = zero(grid)
-        for a in 0:1, b in 0:1
+        for a in 0:fx-1, b in 0:fy-1
             Σ += area_weighted(i + a, j + b, k, fine_grid, fine_η̄H, Center(), Center())
         end
         η̄H[I, J, k] = Σ / Azᶜᶜᶜ(I, J, k, grid)
-        βᵘ[I, J, k] = restrict(I, J, k, Face(), Center(), grid, fine_grid, area_weighted, fine_βᵘ, Face(), Center()) / Azᶠᶜᶜ(I, J, k, grid)
-        βᵛ[I, J, k] = restrict(I, J, k, Center(), Face(), grid, fine_grid, area_weighted, fine_βᵛ, Center(), Face()) / Azᶜᶠᶜ(I, J, k, grid)
+        βᵘ[I, J, k] = restrict(I, J, k, Face(), Center(), cx, cy, grid, fine_grid, area_weighted, fine_βᵘ, Face(), Center()) / Azᶠᶜᶜ(I, J, k, grid)
+        βᵛ[I, J, k] = restrict(I, J, k, Center(), Face(), cx, cy, grid, fine_grid, area_weighted, fine_βᵛ, Center(), Face()) / Azᶜᶠᶜ(I, J, k, grid)
     end
 end
 
-@kernel function _restrict!(bu, bv, ru, rv, η̄H, fine_η̄H, grid, fine_grid)
+@kernel function _restrict!(bu, bv, ru, rv, η̄H, fine_η̄H, cx, cy, grid, fine_grid)
     I, J, k = @index(Global, NTuple)
     @inbounds begin
-        bu[I, J, k] = ifelse(inactiveᶠᶜᶜ(I, J, k, grid, η̄H), zero(grid), restrict(I, J, k, Face(), Center(), grid, fine_grid, interior_u, ru, fine_η̄H))
-        bv[I, J, k] = ifelse(inactiveᶜᶠᶜ(I, J, k, grid, η̄H), zero(grid), restrict(I, J, k, Center(), Face(), grid, fine_grid, interior_v, rv, fine_η̄H))
+        bu[I, J, k] = ifelse(inactiveᶠᶜᶜ(I, J, k, grid, η̄H), zero(grid), restrict(I, J, k, Face(), Center(), cx, cy, grid, fine_grid, interior_u, ru, fine_η̄H))
+        bv[I, J, k] = ifelse(inactiveᶜᶠᶜ(I, J, k, grid, η̄H), zero(grid), restrict(I, J, k, Center(), Face(), cx, cy, grid, fine_grid, interior_v, rv, fine_η̄H))
     end
 end
 
-@kernel function _prolongate!(xu, xv, cu, cv, η̄H, coarse_η̄H, grid, coarse_grid)
+@kernel function _prolongate!(xu, xv, cu, cv, η̄H, coarse_η̄H, cx, cy, grid, coarse_grid)
     i, j, k = @index(Global, NTuple)
     @inbounds begin
-        xu[i, j, k] += ifelse(inactiveᶠᶜᶜ(i, j, k, grid, η̄H), zero(grid), prolongate(i, j, k, Face(), Center(), grid, coarse_grid, interior_u, cu, coarse_η̄H))
-        xv[i, j, k] += ifelse(inactiveᶜᶠᶜ(i, j, k, grid, η̄H), zero(grid), prolongate(i, j, k, Center(), Face(), grid, coarse_grid, interior_v, cv, coarse_η̄H))
+        xu[i, j, k] += ifelse(inactiveᶠᶜᶜ(i, j, k, grid, η̄H), zero(grid), prolongate(i, j, k, Face(), Center(), cx, cy, grid, coarse_grid, interior_u, cu, coarse_η̄H))
+        xv[i, j, k] += ifelse(inactiveᶜᶠᶜ(i, j, k, grid, η̄H), zero(grid), prolongate(i, j, k, Center(), Face(), cx, cy, grid, coarse_grid, interior_v, cv, coarse_η̄H))
     end
 end

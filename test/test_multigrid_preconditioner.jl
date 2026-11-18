@@ -28,13 +28,17 @@ end
 
 @testset "Multigrid preconditioner" begin
     grid = RectilinearGrid(arch; size = (32, 16), x = (0, 1), y = (0, 1), topology = (Bounded, Periodic, Flat))
-    @test map(level -> size(level.grid), StressBalanceMultigridPreconditioner(grid).levels) == ((16, 8, 1), (8, 4, 1))
+    @test map(level -> size(level.grid), StressBalanceMultigridPreconditioner(grid).levels) == ((16, 8, 1), (8, 4, 1), (4, 4, 1))
     odd_grid = RectilinearGrid(arch; size = (15, 8), x = (0, 1), y = (0, 1), topology = (Bounded, Periodic, Flat))
-    @test (@test_logs (:warn, r"cannot be halved") StressBalanceMultigridPreconditioner(odd_grid)).levels == ()
+    @test map(level -> size(level.grid), StressBalanceMultigridPreconditioner(odd_grid).levels) == ((15, 4, 1),)
+    flowline = RectilinearGrid(arch; size = (64, 4), halo = (4, 4), x = (0, 1), y = (0, 1), topology = (Bounded, Bounded, Flat))
+    @test map(level -> size(level.grid), StressBalanceMultigridPreconditioner(flowline).levels) == ((32, 4, 1), (16, 4, 1), (8, 4, 1), (4, 4, 1))
+    unhalvable_grid = RectilinearGrid(arch; size = (15, 5), x = (0, 1), y = (0, 1), topology = (Bounded, Periodic, Flat))
+    @test (@test_logs (:warn, r"cannot be halved") StressBalanceMultigridPreconditioner(unhalvable_grid)).levels == ()
 
-    for topology in ((Bounded, Periodic, Flat), (Bounded, Bounded, Flat), (Periodic, Periodic, Flat))
-        @testset "Transfers and symmetry on $topology" begin
-            grid = RectilinearGrid(arch; size = (16, 8), halo = (4, 4), x = (0, 1), y = (0, 1), topology)
+    for topology in ((Bounded, Periodic, Flat), (Bounded, Bounded, Flat), (Periodic, Periodic, Flat)), size in ((16, 8), (32, 4), (4, 32))
+        @testset "Transfers and symmetry on $topology, $size" begin
+            grid = RectilinearGrid(arch; size, halo = (4, 4), x = (0, 1), y = (0, 1), topology)
             P = StressBalanceMultigridPreconditioner(grid)
             η̄H, η̄Hᶠᶠ, βᵘ, βᵛ = holed_coefficients(grid)
             coarsen_coefficients!(P.levels, η̄H, βᵘ, βᵛ)
@@ -42,8 +46,8 @@ end
 
             f, c = smooth_vector(grid, 3), smooth_vector(coarse.grid, 2)
             Rf, Pc = VelocityVector(coarse.grid), VelocityVector(grid)
-            restrict!(Rf, f, coarse.η̄H, η̄H)
-            prolongate!(Pc, c, η̄H, coarse.η̄H)
+            restrict!(Rf, f, coarse.η̄H, η̄H, coarse.coarsening)
+            prolongate!(Pc, c, η̄H, coarse.η̄H, coarse.coarsening)
             @test solved_dot(Rf, c) ≈ solved_dot(f, Pc) rtol = 1e-12
 
             r₁, r₂ = smooth_vector(grid, 1), smooth_vector(grid, 2)
