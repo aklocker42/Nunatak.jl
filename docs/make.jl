@@ -15,6 +15,7 @@ benchmarks = ["halfar" => "Halfar dome",
               "halfpipe_streamice" => "STREAMICE halfpipe",
               "halfpipe_streamice_adjoint" => "STREAMICE halfpipe adjoint",
               "mismip_plus" => "MISMIP+",
+              "schoof_flowline" => "Schoof flowline grounding line",
               "kleiner2015_a" => "Polythermal slab, surface temperature cycle",
               "kleiner2015_b" => "Polythermal slab, steady state"]
 
