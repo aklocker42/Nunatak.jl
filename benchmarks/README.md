@@ -11,6 +11,7 @@ julia --project=. -e 'include("halfpipe_streamice_adjoint.jl"); halfpipe_streami
 julia --project=. -e 'include("mismip_plus.jl"); mismip_plus()'
 julia --project=. kleiner2015_a.jl
 julia --project=. kleiner2015_b.jl
+julia --project=. -e 'include("multigrid_scaling.jl"); multigrid_scaling()'
 ```
 
 `plot_benchmarks.jl` turns the CSV output into the figures on the documentation's validation pages.
@@ -28,6 +29,7 @@ fields as CSV files.
 | `mismip_plus.jl` | Marine ice stream on a retrograde bed: spin-up and melt experiments Ice1r, Ice1ra, Ice2r, Ice2ra | Asay-Davis et al. (2016, Geosci. Model Dev. 9); STREAMICE in Cornford et al. (2020, The Cryosphere 14) |
 | `kleiner2015_a.jl` | Slab under a surface temperature cycle, basal melt and refreezing | Kleiner et al. (2015, The Cryosphere 9), experiment A |
 | `kleiner2015_b.jl` | Steady polythermal slab, cold-temperate transition surface | Kleiner et al. (2015, The Cryosphere 9), experiment B |
+| `multigrid_scaling.jl` | CG iterations and time of one SSA solve with the diagonal and multigrid preconditioners, 8 km to 0.5 km | MISMIP+ bed, Asay-Davis et al. (2016, Geosci. Model Dev. 9) |
 
 EISMINT II experiment A after 200 kyr, intercomparison mean and range across ten models (Payne et al., 2000, Table 4):
 

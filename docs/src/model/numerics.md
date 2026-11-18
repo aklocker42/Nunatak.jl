@@ -34,6 +34,20 @@ operator is integrated over its velocity cell, so the operator is symmetric posi
   rediscretizes the operator, and the smoother is ℓ1-Jacobi, so the V-cycle stays symmetric positive definite. It
   pays off on large grids.
 
+On a MISMIP+ ice stream with a grounding line and a calving front (`benchmarks/multigrid_scaling.jl`, one SSA solve
+to a relative tolerance of ``10^{-8}``), the diagonal preconditioner needs twice the iterations each time the grid
+is refined, while multigrid stays nearly flat:
+
+| Δx | Grid | Diagonal: iterations, CPU / GPU time (s) | Multigrid: iterations, CPU / GPU time (s) |
+|---|---|---|---|
+| 8 km | 80 × 10 | 42, 0.01 / 0.03 | 14, 0.01 / 0.02 |
+| 4 km | 160 × 20 | 91, 0.01 / 0.05 | 18, 0.02 / 0.02 |
+| 2 km | 320 × 40 | 188, 0.05 / 0.15 | 20, 0.03 / 0.03 |
+| 1 km | 640 × 80 | 392, 0.33 / 0.22 | 22, 0.18 / 0.04 |
+| 0.5 km | 1280 × 160 | 817, 3.29 / 0.58 | 24, 0.52 / 0.05 |
+
+CPU times are on four threads, GPU times on one NVIDIA H200.
+
 The `schedule` of the solver (default `IterationInterval(1)`) can skip velocity solves between time steps.
 
 ## Thickness transport and time stepping
