@@ -7,10 +7,26 @@ line crosses a cell. At a velocity point `φᵘ`, `φᵛ` is the grounded part o
 two neighboring centers; at a center `φ` is the grounded part of the cell.
 Friction is scaled by the face fractions `φᵘ`, `φᵛ` and melt by `1 - φ`. The densities come from
 `IceSheetConstants`.
-"""
-struct SubgridGroundedFraction end
 
-Base.summary(::SubgridGroundedFraction) = "SubgridGroundedFraction"
+With `driving_stress = true` the driving stress on a face that straddles the grounding line is integrated
+separately over its grounded and floating parts, with the surface kinked at the interpolated grounding line.
+
+```jldoctest
+julia> using Nunatak
+
+julia> SubgridGroundedFraction(driving_stress = true)
+SubgridGroundedFraction{true}()
+```
+"""
+struct SubgridGroundedFraction{D} end
+
+SubgridGroundedFraction(; driving_stress = false) = SubgridGroundedFraction{driving_stress}()
+
+Base.summary(::SubgridGroundedFraction{D}) where D = "SubgridGroundedFraction(driving_stress = $D)"
+
+# Bed passed to the driving stress when it resolves the grounding line inside a face, `nothing` otherwise.
+grounding_line_bed(::SubgridGroundedFraction{true}, b) = b
+grounding_line_bed(grounding, b) = nothing
 
 @inline flotation(i, j, k, grid, H, b, ρw_ρᵢ) = @inbounds H[i, j, k] + ρw_ρᵢ * b[i, j, k]
 

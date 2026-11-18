@@ -17,6 +17,18 @@ fraction ``\phi \in [0, 1]`` moves continuously as the grounding line crosses a 
 - Sub-shelf melt is scaled by ``1 - \phi``.
 - The surface is ``s = \max(b + H, (1 - \rho_i/\rho_w) H)``.
 
+With `SubgridGroundedFraction(driving_stress = true)` the driving stress on a velocity face whose two centres lie on
+opposite sides of the grounding line is split there too. The grounding line sits at ``\theta = f_1 / (f_1 - f_2)`` along
+the segment, where the ice is at flotation with thickness ``H^g = H_1 + \theta (H_2 - H_1)`` and surface
+``s^g = (1 - \rho_i/\rho_w) H^g``. Each part contributes its own mean thickness times its own surface drop,
+
+```math
+\tau = -\Delta \, \rho_i g \, \frac{(H_1 + H^g)(s^g - s_1) + (H^g + H_2)(s_2 - s^g)}{2} ,
+```
+
+with ``\Delta`` the face width. This captures the kink of the surface at the grounding line instead of averaging
+across it. The option is off by default.
+
 Without a grounding treatment (`grounding = nothing`) all ice rests on the bed and ``s = b + H``.
 
 ## Ice masks

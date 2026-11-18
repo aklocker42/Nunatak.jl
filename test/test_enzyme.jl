@@ -506,13 +506,13 @@ end
         end
     end
 
-    @testset "Marine ice velocities across the grounding line" begin
+    @testset "Marine ice velocities across the grounding line (driving_stress = $driving_stress)" for driving_stress in (false, true)
         marine_grid = RectilinearGrid(arch; size = (16, 4), halo = (4, 4), x = (0, 64e3), y = (0, 16e3), topology = (Bounded, Bounded, Flat))
         velocity_solver = StressBalanceSolver(marine_grid; linear_iteration_control = Convergence(; reltol = 1e-14, maxiter = 10_000),
                                               picard_iteration_control = FixedIterations(4))
         model = IceSheetModel(marine_grid; velocity_solver, rheology = GlenFlowLaw(marine_grid; rate_factor = 1e-24),
                               friction = WeertmanFriction(marine_grid; coefficient = 3e6),
-                              grounding = SubgridGroundedFraction(), bed = (x, y) -> -200 - 1e-2 * x)
+                              grounding = SubgridGroundedFraction(; driving_stress), bed = (x, y) -> -200 - 1e-2 * x)
         set!(model; H = (x, y) -> ifelse(x < 56e3, 1000 - 1e-2 * x - 100 * ((y - 8e3) / 8e3)^2, 0))
         φ = Array(interior(model.geometry.φ))
         @test 0 < φ[9, 2, 1] < 1 && 0 < φ[10, 2, 1] < 1

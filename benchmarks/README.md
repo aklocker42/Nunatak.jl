@@ -9,6 +9,7 @@ julia --project=. -e 'include("eismint2_a.jl"); eismint2_a(Nσ = 40)'
 julia --project=. -e 'include("halfpipe_streamice.jl"); halfpipe_streamice()'
 julia --project=. -e 'include("halfpipe_streamice_adjoint.jl"); halfpipe_streamice_adjoint()'
 julia --project=. -e 'include("mismip_plus.jl"); mismip_plus()'
+julia --project=. -e 'include("schoof_flowline.jl"); schoof_flowline(start = :retreat, driving_stress = true)'
 julia --project=. kleiner2015_a.jl
 julia --project=. kleiner2015_b.jl
 ```
@@ -26,6 +27,7 @@ fields as CSV files.
 | `halfpipe_streamice.jl` | Floating shelf in a channel with an advancing calving front, 2 years | MITgcm STREAMICE `verification/halfpipe_streamice` |
 | `halfpipe_streamice_adjoint.jl` | Gradient of a velocity and thickness cost with respect to basal melt, 3 steps | MITgcm STREAMICE `verification/halfpipe_streamice` (`input_ad`) |
 | `mismip_plus.jl` | Marine ice stream on a retrograde bed: spin-up and melt experiments Ice1r, Ice1ra, Ice2r, Ice2ra | Asay-Davis et al. (2016, Geosci. Model Dev. 9); STREAMICE in Cornford et al. (2020, The Cryosphere 14) |
+| `schoof_flowline.jl` | Steady grounding line of a marine flowline approached from upstream and downstream, uniform or stretched Δx | Schoof (2007, J. Geophys. Res. 112) |
 | `kleiner2015_a.jl` | Slab under a surface temperature cycle, basal melt and refreezing | Kleiner et al. (2015, The Cryosphere 9), experiment A |
 | `kleiner2015_b.jl` | Steady polythermal slab, cold-temperate transition surface | Kleiner et al. (2015, The Cryosphere 9), experiment B |
 
