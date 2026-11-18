@@ -259,7 +259,7 @@ end
         forced = (Hᵢ > 0) & (Hʳᵢ > 0)
         Hᶠ = ifelse(full, Hᵢ, Hʳᵢ)
         melted = forced & (Hᶠ + S * Δt ≤ 0)
-        Hⁿ = ifelse(full, Hᵢ + S * Δt, Hᵢ / max(Hʳᵢ, eps(Hʳᵢ)) * (Hʳᵢ + S * Δt))
+        Hⁿ = ifelse(full, Hᵢ + S * Δt, Hᵢ / ifelse(Hʳᵢ > 0, Hʳᵢ, one(Hʳᵢ)) * (Hʳᵢ + S * Δt))
         C[i, j, 1] += ifelse(melted, -Hⁿ, zero(Hᵢ))
         H[i, j, 1] = ifelse(melted, zero(Hᵢ), ifelse(forced, Hⁿ, Hᵢ))
         Hʳ[i, j, 1] = ifelse(melted | full, zero(Hʳᵢ), ifelse(forced, Hʳᵢ + S * Δt, Hʳᵢ))
