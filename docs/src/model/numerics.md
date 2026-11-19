@@ -32,8 +32,23 @@ operator is integrated over its velocity cell, so the operator is symmetric posi
   coefficients, so it follows the Picard iterations without storage;
 - [`StressBalanceMultigridPreconditioner`](@ref): a geometric multigrid V-cycle. Each level halves the grid in
   `x`, `y` or both and rediscretizes the operator. The smoother is ℓ1-Jacobi on lines in `y` ([`LineJacobi`](@ref),
-  the default) or on points ([`PointJacobi`](@ref)), so the V-cycle stays symmetric positive definite. It pays off
-  on large grids.
+  the default) or on points ([`PointJacobi`](@ref)), so the V-cycle stays symmetric positive definite.
+
+The diagonal preconditioner needs about twice as many iterations each time the grid is refined, while the multigrid
+count grows slowly. A V-cycle costs several operator applications, so multigrid is faster in wall time only on large
+grids. The table is from `benchmarks/multigrid_scaling.jl`: a MISMIP+-like ice stream with a grounding line and a
+calving front, relative tolerance 1e-8, one CPU thread, one solve from zero.
+
+| Grid | Δx | Diagonal iterations | Diagonal time | Multigrid iterations | Multigrid time |
+|:-----|---:|---:|---:|---:|---:|
+| 160 × 20   | 4 km   | 91  | 0.006 s | 17 | 0.013 s |
+| 320 × 40   | 2 km   | 188 | 0.04 s  | 19 | 0.09 s  |
+| 640 × 80   | 1 km   | 392 | 0.65 s  | 21 | 0.44 s  |
+| 1280 × 160 | 0.5 km | 817 | 3.2 s   | 23 | 1.4 s   |
+| 1280 × 4 (flowline) | 0.5 km | 946 | 0.10 s | 29 | 0.08 s |
+
+On a CPU we recommend `StressBalanceMultigridPreconditioner(grid)` from about 50 000 cells. The crossover on a GPU
+has not been measured yet.
 
 On a MISMIP+ ice stream with a grounding line and a calving front (`benchmarks/multigrid_scaling.jl`, one SSA solve
 to a relative tolerance of ``10^{-8}``), the diagonal preconditioner needs twice the iterations each time the grid
