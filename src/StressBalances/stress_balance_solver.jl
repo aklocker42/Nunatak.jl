@@ -46,10 +46,12 @@ function StressBalanceSolver(grid;
                              adjoint_iteration_control = picard_iteration_control,
                              preconditioner = StressBalanceDiagonalPreconditioner(),
                              schedule = IterationInterval(1))
-    linear_solver = VelocityConjugateGradientSolver(ssa_operator!, grid; iteration_control = linear_iteration_control, preconditioner)
+    linear_solver = VelocityConjugateGradientSolver(stress_balance_operator(grid), grid; iteration_control = linear_iteration_control, preconditioner)
     picard = PicardIteration(grid; iteration_control = picard_iteration_control, adjoint_iteration_control)
     return StressBalanceSolver(linear_solver, picard, schedule, 0)
 end
+
+stress_balance_operator(grid) = ssa_operator!
 
 Base.summary(solver::StressBalanceSolver) =
     string("StressBalanceSolver(picard = ", solver.picard.iteration_control,

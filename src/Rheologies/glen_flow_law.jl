@@ -57,6 +57,8 @@ materialize_rate_factor(::ArrheniusRateFactor, σgrid, ::Nothing) = throw(Argume
 rate_factor_field(rate_factor) = rate_factor
 rate_factor_field(rate_factor::ArrheniusRateFactor) = rate_factor.field
 
+@inline glen_viscosity(ε̇ₑ², A, n) = A^(-1 / n) * ε̇ₑ²^((1 - n) / 2n) / 2
+
 struct UniformInDepth end
 struct VaryingInDepth end
 
@@ -107,7 +109,7 @@ end
 @kernel function _compute_viscosity!(ησ, u, v, walls, A, structure, n, ε̇₀, grid)
     i, j, k = @index(Global, NTuple)
     ε̇ₑ² = effective_strain_rate²(i, j, 1, grid, u, v, walls) + ε̇₀^2
-    @inbounds ησ[i, j, k] = rate_factor(i, j, k, A, structure)^(-1 / n) * ε̇ₑ²^((1 - n) / 2n) / 2
+    @inbounds ησ[i, j, k] = glen_viscosity(ε̇ₑ², rate_factor(i, j, k, A, structure), n)
 end
 
 """
@@ -139,5 +141,5 @@ end
     ε̇xz = ℑxᶜᵃᵃ(i, j, 1, grid, basal_stress, βᵇᵘ, uᵇ) * (1 - ζ) / 2η⁻
     ε̇yz = ℑyᵃᶜᵃ(i, j, 1, grid, basal_stress, βᵇᵛ, vᵇ) * (1 - ζ) / 2η⁻
     ε̇ₑ² = effective_strain_rate²(i, j, 1, grid, u, v, walls) + ε̇xz^2 + ε̇yz^2 + ε̇₀^2
-    @inbounds ησ[i, j, k] = rate_factor(i, j, k, A, structure)^(-1 / n) * ε̇ₑ²^((1 - n) / 2n) / 2
+    @inbounds ησ[i, j, k] = glen_viscosity(ε̇ₑ², rate_factor(i, j, k, A, structure), n)
 end

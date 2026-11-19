@@ -4,7 +4,7 @@ using Nunatak
 using Nunatak: VelocityVector, VelocityConjugateGradientSolver, PicardIteration, Convergence
 using Nunatak: axpy!, subtract!, vector_dot!, time_steps!
 using Nunatak: overwritten_coefficients
-using Nunatak: GlenFlowLaw, ArrheniusRateFactor
+using Nunatak: GlenFlowLaw, ArrheniusRateFactor, MeshField
 using Nunatak.Oceananigans: prognostic_state, restore_prognostic_state!, time_step!
 using Nunatak.Oceananigans: Field
 using Nunatak.Oceananigans.BoundaryConditions: fill_halo_regions!
@@ -50,10 +50,11 @@ end
 
 # The cells the solver updates; outer wall faces of `Bounded` grids are boundary values.
 solved_cells(f) = view(parent(f), f.grid.Hx .+ (1:f.grid.Nx), f.grid.Hy .+ (1:f.grid.Ny), :)
+solved_cells(f::MeshField) = parent(f)
 
 # Later Picard iterations and time steps overwrite the coefficients and the Arrhenius rate factor,
 # so the reverse pass needs their values at solve time.
-function snapshot(a::Field)
+function snapshot(a::Union{Field, MeshField})
     c = similar(a)
     parent(c) .= parent(a)
     return c

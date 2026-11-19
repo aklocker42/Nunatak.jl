@@ -1,7 +1,7 @@
 module Nunatak
 
 export SigmaGrid, sigma_faces
-export TriangleMesh, NodeField, ElementField
+export TriangleMesh, NodeField, ElementField, solve_stress_balance!
 export IceSheetModel
 export DepthIntegrated, DIVAShear, FreeSlipWalls, NoSlipWalls, ShallowIce, ShallowIceSolver
 export GlenFlowLaw, ArrheniusRateFactor
@@ -70,6 +70,8 @@ include("StressBalances/diagonal_preconditioner.jl")
 include("StressBalances/multigrid_preconditioner.jl")
 include("Solvers/picard.jl")
 include("StressBalances/stress_balance_solver.jl")
+include("StressBalances/triangle_ssa_operator.jl")
+include("StressBalances/triangle_coefficients.jl")
 include("StressBalances/shallow_ice.jl")
 include("Models/smooth_ice_mask.jl")
 include("Models/partial_cell_front.jl")

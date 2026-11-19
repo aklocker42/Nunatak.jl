@@ -8,7 +8,8 @@ bibliography = CitationBibliography(joinpath(@__DIR__, "src", "references.bib");
 # The scripts run for minutes to days, so the pages show their code without executing it, plus committed figures.
 examples = ["ice_cap" => "Growing an ice cap",
             "marine_ice_sheet" => "A marine ice sheet advancing into the ocean",
-            "friction_inversion" => "Inverting for basal friction"]
+            "friction_inversion" => "Inverting for basal friction",
+            "triangle_ice_shelf" => "An ice shelf in a bay on a triangle mesh"]
 
 benchmarks = ["halfar" => "Halfar dome",
               "eismint2_a" => "EISMINT II experiment A",
@@ -16,7 +17,8 @@ benchmarks = ["halfar" => "Halfar dome",
               "halfpipe_streamice_adjoint" => "STREAMICE halfpipe adjoint",
               "mismip_plus" => "MISMIP+",
               "kleiner2015_a" => "Polythermal slab, surface temperature cycle",
-              "kleiner2015_b" => "Polythermal slab, steady state"]
+              "kleiner2015_b" => "Polythermal slab, steady state",
+              "square_shelf_triangle" => "Square ice shelf on triangles against DJUICE"]
 
 # A figure belongs to the longest script name it starts with, so halfpipe_streamice skips halfpipe_streamice_adjoint's.
 function figure_owner(file)
@@ -61,6 +63,7 @@ makedocs(sitename = "Nunatak.jl",
                                           "Rheology and sliding" => "model/rheology_and_sliding.md",
                                           "Grounding lines and calving fronts" => "model/grounding_and_fronts.md",
                                           "Thermodynamics" => "model/thermodynamics.md",
+                                          "Triangle meshes" => "model/triangle_mesh.md",
                                           "Numerics" => "model/numerics.md"],
                   "Gradients and adjoints" => "gradients.md",
                   "Examples" => example_pages,

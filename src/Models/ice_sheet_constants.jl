@@ -17,7 +17,7 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Build `IceSheetConstants` with the floating-point type of `grid`. The default densities are those of MISMIP+.
+Build `IceSheetConstants` with the floating-point type of `grid`, a grid or a `TriangleMesh`. The default densities are those of MISMIP+.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -30,7 +30,7 @@ julia> constants.ocean_density / constants.ice_density
 1.1198257080610021
 ```
 """
-function IceSheetConstants(grid::AbstractGrid; ice_density = 918, ocean_density = 1028, gravitational_acceleration = 9.81)
+function IceSheetConstants(grid; ice_density = 918, ocean_density = 1028, gravitational_acceleration = 9.81)
     FT = eltype(grid)
     return IceSheetConstants(convert(FT, ice_density), convert(FT, ocean_density), convert(FT, gravitational_acceleration))
 end
