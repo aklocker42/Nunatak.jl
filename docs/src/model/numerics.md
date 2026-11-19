@@ -31,8 +31,9 @@ operator is integrated over its velocity cell, so the operator is symmetric posi
 - [`StressBalanceDiagonalPreconditioner`](@ref) (the default): the operator diagonal evaluated from the current
   coefficients, so it follows the Picard iterations without storage;
 - [`StressBalanceMultigridPreconditioner`](@ref): a geometric multigrid V-cycle. Each level halves the grid in
-  `x`, `y` or both and rediscretizes the operator. The smoother is ℓ1-Jacobi on lines in `y` ([`LineJacobi`](@ref),
-  the default) or on points ([`PointJacobi`](@ref)), so the V-cycle stays symmetric positive definite.
+  `x`, `y` or both and rediscretizes the operator. The smoother is ℓ1-Jacobi on points ([`PointJacobi`](@ref), the
+  default) or on lines in `y` ([`LineJacobi`](@ref)), so the V-cycle stays symmetric positive definite. On flowlines
+  and other grids much longer in `x` than in `y`, `LineJacobi()` needs far fewer iterations.
 
 On a MISMIP+ ice stream with a grounding line and a calving front (`benchmarks/multigrid_scaling.jl`, one SSA solve
 from zero to a relative tolerance of ``10^{-8}``), the diagonal preconditioner needs twice the iterations each time

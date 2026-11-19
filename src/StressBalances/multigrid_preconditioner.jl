@@ -35,7 +35,8 @@ $(TYPEDSIGNATURES)
 
 Build a `StressBalanceMultigridPreconditioner` on `grid`. A direction is halved while its size is even and the coarse
 grid keeps at least `minimum_coarse_size` cells, and no fewer cells than halo points, in that direction; coarsening
-stops when neither direction can be halved. `smoother` is `LineJacobi()` or `PointJacobi()`.
+stops when neither direction can be halved. `smoother` is `PointJacobi()` or `LineJacobi()`; use `LineJacobi()` on
+grids much longer in `x` than in `y`, such as flowlines.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -53,7 +54,7 @@ julia> map(level -> size(level.grid), StressBalanceMultigridPreconditioner(flowl
 ((32, 4, 1), (16, 4, 1), (8, 4, 1), (4, 4, 1))
 ```
 """
-function StressBalanceMultigridPreconditioner(grid; smoother = LineJacobi(), smoothing_sweeps = 2, coarsest_sweeps = 20, minimum_coarse_size = 2)
+function StressBalanceMultigridPreconditioner(grid; smoother = PointJacobi(), smoothing_sweeps = 2, coarsest_sweeps = 20, minimum_coarse_size = 2)
     levels = coarse_levels(grid, minimum_coarse_size)
     isempty(levels) && @warn "$(size(grid)) grid cannot be halved; the multigrid preconditioner reduces to ℓ1-Jacobi sweeps"
     scratch = Field{Center, Center, Nothing}(grid)
@@ -70,7 +71,9 @@ struct PointJacobi end
 """
 $(TYPEDEF)
 
-ℓ1-block Jacobi smoother on lines in `y` for `StressBalanceMultigridPreconditioner`.
+ℓ1-block Jacobi smoother on lines in `y` for `StressBalanceMultigridPreconditioner`. It needs fewer iterations than
+[`PointJacobi`](@ref) when the cells are much longer in `x` than in `y`, as on the coarse levels of a flowline. Each
+line is solved sequentially, so a sweep costs more, most of all on a GPU.
 """
 struct LineJacobi end
 
