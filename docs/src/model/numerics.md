@@ -34,35 +34,21 @@ operator is integrated over its velocity cell, so the operator is symmetric posi
   `x`, `y` or both and rediscretizes the operator. The smoother is ℓ1-Jacobi on lines in `y` ([`LineJacobi`](@ref),
   the default) or on points ([`PointJacobi`](@ref)), so the V-cycle stays symmetric positive definite.
 
-The diagonal preconditioner needs about twice as many iterations each time the grid is refined, while the multigrid
-count grows slowly. A V-cycle costs several operator applications, so multigrid is faster in wall time only on large
-grids. The table is from `benchmarks/multigrid_scaling.jl`: a MISMIP+-like ice stream with a grounding line and a
-calving front, relative tolerance 1e-8, one CPU thread, one solve from zero.
-
-| Grid | Δx | Diagonal iterations | Diagonal time | Multigrid iterations | Multigrid time |
-|:-----|---:|---:|---:|---:|---:|
-| 160 × 20   | 4 km   | 91  | 0.006 s | 17 | 0.013 s |
-| 320 × 40   | 2 km   | 188 | 0.04 s  | 19 | 0.09 s  |
-| 640 × 80   | 1 km   | 392 | 0.65 s  | 21 | 0.44 s  |
-| 1280 × 160 | 0.5 km | 817 | 3.2 s   | 23 | 1.4 s   |
-| 1280 × 4 (flowline) | 0.5 km | 946 | 0.10 s | 29 | 0.08 s |
-
-On a CPU we recommend `StressBalanceMultigridPreconditioner(grid)` from about 50 000 cells. The crossover on a GPU
-has not been measured yet.
-
 On a MISMIP+ ice stream with a grounding line and a calving front (`benchmarks/multigrid_scaling.jl`, one SSA solve
-to a relative tolerance of ``10^{-8}``), the diagonal preconditioner needs twice the iterations each time the grid
-is refined, while multigrid stays nearly flat:
+from zero to a relative tolerance of ``10^{-8}``), the diagonal preconditioner needs twice the iterations each time
+the grid is refined, while multigrid stays nearly flat:
 
 | Δx | Grid | Diagonal: iterations, CPU / GPU time (s) | Multigrid: iterations, CPU / GPU time (s) |
 |---|---|---|---|
-| 8 km | 80 × 10 | 42, 0.01 / 0.03 | 14, 0.01 / 0.02 |
-| 4 km | 160 × 20 | 91, 0.01 / 0.05 | 18, 0.02 / 0.02 |
-| 2 km | 320 × 40 | 188, 0.05 / 0.15 | 20, 0.03 / 0.03 |
-| 1 km | 640 × 80 | 392, 0.33 / 0.22 | 22, 0.18 / 0.04 |
-| 0.5 km | 1280 × 160 | 817, 3.29 / 0.58 | 24, 0.52 / 0.05 |
+| 8 km | 80 × 10 | 42, 0.001 / 0.02 | 14, 0.005 / 0.02 |
+| 4 km | 160 × 20 | 91, 0.006 / 0.05 | 17, 0.013 / 0.04 |
+| 2 km | 320 × 40 | 188, 0.04 / 0.10 | 19, 0.09 / 0.05 |
+| 1 km | 640 × 80 | 392, 0.65 / 0.22 | 21, 0.44 / 0.09 |
+| 0.5 km | 1280 × 160 | 817, 3.2 / 0.56 | 23, 1.4 / 0.17 |
+| 0.25 km | 2560 × 320 | 1767, – / 1.1 | 26, – / 0.39 |
 
-CPU times are on four threads, GPU times on one NVIDIA H200.
+CPU times are on one thread, GPU times on one NVIDIA H200. A V-cycle costs several operator applications, so on a
+CPU multigrid is faster only from about 50 000 cells; on a GPU it is faster from about 3000 cells.
 
 The `schedule` of the solver (default `IterationInterval(1)`) can skip velocity solves between time steps.
 
