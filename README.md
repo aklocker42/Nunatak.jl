@@ -2,6 +2,9 @@
 
 # Nunatak.jl
 
+[![CI](https://github.com/aklocker42/Nunatak.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/aklocker42/Nunatak.jl/actions/workflows/CI.yml)
+[![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://aklocker42.github.io/Nunatak.jl/dev/)
+
 Nunatak is a differentiable ice-sheet and ice-shelf model built on
 [Oceananigans.jl](https://github.com/CliMA/Oceananigans.jl). It runs on CPUs and GPUs, and Enzyme computes
 gradients through whole simulations for inversions and sensitivity studies.

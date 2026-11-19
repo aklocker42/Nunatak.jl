@@ -460,6 +460,32 @@ end
         end
     end
 
+    @testset "Surface mass balance through the partial-cell front" begin
+        Δx, U, Hⁱ = 1e3, 1, 100
+        channel_grid = RectilinearGrid(arch; size = (16, 4), halo = (4, 4), x = (0, 16Δx), y = (0, 4Δx), topology = (Bounded, Periodic, Flat))
+        model = IceSheetModel(channel_grid; velocity_solver = nothing, advection = UpwindBiased(order = 1),
+                              surface_mass_balance = (x, y) -> ifelse(x < Δx, U * Hⁱ / Δx, -1e-6),
+                              masking = PartialCellFront(channel_grid))
+        set!(model; H = (x, y) -> ifelse(x < 4Δx, Hⁱ, 0), u = (x, y) -> ifelse(0 < x < 16Δx, U, 0))
+        H₀ = deepcopy(model.geometry.H)
+        state₀ = deepcopy(Oceananigans.prognostic_state(model))
+        Δt = Δx / U / 4
+        Nt = 6
+
+        dmodel = Enzyme.make_zero(model)
+        autodiff(set_runtime_activity(Reverse), thickness_cost, Active,
+                 Duplicated(model, dmodel), Const(H₀), Const(Δt), Const(Nt))
+        @test !any(isnan, parent(dmodel.surface_mass_balance))
+
+        cost() = (Oceananigans.restore_prognostic_state!(model, state₀); thickness_cost(model, H₀, Δt, Nt))
+        for index in ((3, 2), (5, 3))
+            fd = centered_difference(cost, model.surface_mass_balance, index, 1e-9)
+            ad = dmodel.surface_mass_balance[index..., 1]
+            @info "∂J/∂a through the partial-cell front" index ad fd
+            @test abs(ad - fd) < 1e-6 * abs(fd)
+        end
+    end
+
     @testset "Shallow-ice thickness evolution through time_step!" begin
         L = 16e3
         sia_grid = RectilinearGrid(arch; size = (16, 4), halo = (4, 4), x = (0, L), y = (0, 4e3), topology = (Bounded, Periodic, Flat))
@@ -506,13 +532,13 @@ end
         end
     end
 
-    @testset "Marine ice velocities across the grounding line" begin
+    @testset "Marine ice velocities across the grounding line (driving_stress = $driving_stress)" for driving_stress in (false, true)
         marine_grid = RectilinearGrid(arch; size = (16, 4), halo = (4, 4), x = (0, 64e3), y = (0, 16e3), topology = (Bounded, Bounded, Flat))
         velocity_solver = StressBalanceSolver(marine_grid; linear_iteration_control = Convergence(; reltol = 1e-14, maxiter = 10_000),
                                               picard_iteration_control = FixedIterations(4))
         model = IceSheetModel(marine_grid; velocity_solver, rheology = GlenFlowLaw(marine_grid; rate_factor = 1e-24),
                               friction = WeertmanFriction(marine_grid; coefficient = 3e6),
-                              grounding = SubgridGroundedFraction(), bed = (x, y) -> -200 - 1e-2 * x)
+                              grounding = SubgridGroundedFraction(; driving_stress), bed = (x, y) -> -200 - 1e-2 * x)
         set!(model; H = (x, y) -> ifelse(x < 56e3, 1000 - 1e-2 * x - 100 * ((y - 8e3) / 8e3)^2, 0))
         φ = Array(interior(model.geometry.φ))
         @test 0 < φ[9, 2, 1] < 1 && 0 < φ[10, 2, 1] < 1
