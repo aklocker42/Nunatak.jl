@@ -41,15 +41,16 @@ the grid is refined, while multigrid stays nearly flat:
 
 | Δx | Grid | Diagonal: iterations, CPU / GPU time (s) | Multigrid: iterations, CPU / GPU time (s) |
 |---|---|---|---|
-| 8 km | 80 × 10 | 42, 0.001 / 0.02 | 14, 0.005 / 0.02 |
-| 4 km | 160 × 20 | 91, 0.006 / 0.05 | 17, 0.013 / 0.04 |
-| 2 km | 320 × 40 | 188, 0.04 / 0.10 | 19, 0.09 / 0.05 |
-| 1 km | 640 × 80 | 392, 0.65 / 0.22 | 21, 0.44 / 0.09 |
-| 0.5 km | 1280 × 160 | 817, 3.2 / 0.56 | 23, 1.4 / 0.17 |
-| 0.25 km | 2560 × 320 | 1767, – / 1.1 | 26, – / 0.39 |
+| 8 km | 80 × 10 | 42, 0.001 / 0.07 | 14, 0.002 / 0.03 |
+| 4 km | 160 × 20 | 91, 0.004 / 0.05 | 18, 0.007 / 0.08 |
+| 2 km | 320 × 40 | 188, 0.03 / 0.11 | 20, 0.02 / 0.04 |
+| 1 km | 640 × 80 | 392, 0.22 / 0.24 | 22, 0.10 / 0.06 |
+| 0.5 km | 1280 × 160 | 817, 1.9 / 0.59 | 24, 0.43 / 0.06 |
+| 0.25 km | 2560 × 320 | 1769, – / 1.3 | 27, – / 0.08 |
 
-CPU times are on one thread, GPU times on one NVIDIA H200. A V-cycle costs several operator applications, so on a
-CPU multigrid is faster only from about 50 000 cells; on a GPU it is faster from about 3000 cells.
+CPU times are on one thread of an AMD EPYC 9745, GPU times on one NVIDIA H200, both with the default `PointJacobi()`
+smoother. On both, multigrid is faster from 2 km (about 13 000 cells) on, and its time grows far more slowly with
+the grid size.
 
 The `schedule` of the solver (default `IterationInterval(1)`) can skip velocity solves between time steps.
 
