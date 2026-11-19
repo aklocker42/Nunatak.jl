@@ -89,10 +89,11 @@ function diva_problem(; Lx = 8e4, Ly = 6e4, τ₀ = 1e4, picard_control = FixedI
     return (velocities, picard, solver, τ, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, ησ, F₂, H, rheology, friction, φᵘ, φᵛ, nothing, βᵇᵘ, βᵇᵛ)
 end
 
-function ridge_model(picard_iteration_control; L = 64e3, adjoint_iteration_control = picard_iteration_control)
+function ridge_model(picard_iteration_control; L = 64e3, adjoint_iteration_control = picard_iteration_control,
+                     preconditioner = grid -> StressBalanceDiagonalPreconditioner())
     grid = RectilinearGrid(arch; size = (16, 4), halo = (4, 4), x = (0, L), y = (0, 16e3), topology = (Bounded, Periodic, Flat))
     velocity_solver = StressBalanceSolver(grid; linear_iteration_control = Convergence(; reltol = 1e-14, maxiter = 10_000),
-                                          picard_iteration_control, adjoint_iteration_control)
+                                          picard_iteration_control, adjoint_iteration_control, preconditioner = preconditioner(grid))
     model = IceSheetModel(grid; velocity_solver, rheology = GlenFlowLaw(grid; rate_factor = 1e-24),
                           friction = WeertmanFriction(grid; coefficient = (x, y) -> 3e6 * (1 + x / L)), surface_mass_balance = 1e-8)
     set!(model; H = (x, y) -> 500 + 300 * exp(-((x - L / 2) / 12e3)^2) * (1 + sin(2π * y / 16e3) / 5))
@@ -234,12 +235,13 @@ end
         @test abs(ad - fd) < 1e-6 * abs(fd)
     end
 
-    @testset "Custom adjoint of solve! through the SSA operator" begin
+    @testset "Custom adjoint of solve! through the SSA operator" for preconditioner in
+            (grid -> StressBalanceDiagonalPreconditioner(), StressBalanceMultigridPreconditioner)
         grid = RectilinearGrid(size = (8, 6), x = (0, 1), y = (0, 1), topology = (Bounded, Periodic, Flat))
         coefficients = ssa_coefficients(grid)
         b = toy_right_hand_side(grid)
         x = VelocityVector(grid)
-        solver = VelocityConjugateGradientSolver(ssa_operator!, grid;
+        solver = VelocityConjugateGradientSolver(ssa_operator!, grid; preconditioner = preconditioner(grid),
                                                  iteration_control = Convergence(; reltol = 1e-14, maxiter = 10_000))
 
         shadows = map(Enzyme.make_zero, coefficients)
@@ -350,6 +352,20 @@ end
             a, b = Array(interior(fixed_point)), Array(interior(unrolled))
             @info "Fixed-point vs taped SSA Picard adjoint" maximum(abs, a .- b) / maximum(abs, b)
             @test a ≈ b rtol = 1e-8
+        end
+    end
+
+    @testset "Fixed-point adjoint with the multigrid preconditioner" begin
+        gradients = map((grid -> StressBalanceDiagonalPreconditioner(), StressBalanceMultigridPreconditioner)) do preconditioner
+            model = ridge_model(Convergence(; reltol = 1e-12, maxiter = 300); preconditioner)
+            H₀ = deepcopy(model.geometry.H)
+            dH₀, dmodel = Enzyme.make_zero(H₀), Enzyme.make_zero(model)
+            autodiff(set_runtime_activity(Reverse), ice_cap_velocity_cost, Active, Duplicated(model, dmodel), Duplicated(H₀, dH₀))
+            return Array(interior(dH₀)), Array(interior(dmodel.friction.coefficient))
+        end
+        for (diagonal, multigrid) in zip(gradients...)
+            @info "Multigrid vs diagonal preconditioner SSA adjoint" maximum(abs, multigrid .- diagonal) / maximum(abs, diagonal)
+            @test multigrid ≈ diagonal rtol = 1e-8
         end
     end
 
