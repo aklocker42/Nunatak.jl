@@ -24,7 +24,7 @@ features:
     details: Shallow ice, shallow shelf and depth-integrated viscosity (DIVA) on a staggered C-grid.
     link: /model/stress_balances
   - title: Grounding lines and fronts
-    details: Sub-grid grounded fractions, calving-front stresses and partially filled front cells.
+    details: Sub-grid grounded fractions, calving-front stresses, partially filled front cells and calving laws.
     link: /model/grounding_and_fronts
   - title: Thermodynamics
     details: Enthalpy with cold and temperate ice, basal water and strain heating on a σ grid.
@@ -48,7 +48,7 @@ gradients through whole simulations for inversions and sensitivity studies.
 - **Rheology and sliding**: Glen's flow law with a constant or Arrhenius rate factor, and Weertman or regularized
   Coulomb friction.
 - **Grounding lines and calving fronts**: subgrid grounded fractions, calving-front stresses, and a front that
-  advances through partially filled cells.
+  advances through partially filled cells and retreats under thickness-threshold, eigen- or von Mises calving.
 - **Thermodynamics**: enthalpy with cold and temperate ice, basal water and strain heating, on a terrain-following
   σ-grid.
 - **Adjoints**: Enzyme reverse-mode rules for the velocity solve, including a fixed-point adjoint of the Picard
