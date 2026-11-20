@@ -14,19 +14,29 @@ drain to `H = 0` become empty. Surface mass balance and basal melt act on full c
 as in STREAMICE, on the ice of the partial cells and of the cells that filled, which empty when the melt
 removes all of it.
 
+A `calving` law (`ThicknessThresholdCalving`, `EigenCalving` or `VonMisesCalving`) makes marine front cells, those
+with an empty neighbor below sea level, retreat after the advance. A front cell loses the fraction `c Δt ℓ / A` of its
+area, with `c` the calving rate, `ℓ` the length of its ocean faces and `A` its area; a full cell that loses ice
+becomes partial. Partial cells take `c` from their full neighbors. The removed thickness accumulates in
+`calved_thickness`. Retreat stops at the front cell: a rate faster than one cell per step is capped there.
+
 $(TYPEDFIELDS)
 """
-struct PartialCellFront{F}
-    "volume `O` an overfilled front cell passes to each empty neighbor (m³)"
+struct PartialCellFront{F, C}
+    "volume `O` an overfilled front cell passes to each empty neighbor (m³), and scratch for the retreat fraction"
     overflow :: F
+    "thickness removed by calving, accumulated over the run (m)"
+    calved_thickness :: F
     "maximum number of overflow passes per time step"
     passes :: Int
+    "calving law, or `nothing` for no calving"
+    calving :: C
 end
 
 """
 $(TYPEDSIGNATURES)
 
-Build a `PartialCellFront` with its overflow scratch field on `grid`.
+Build a `PartialCellFront` with its overflow scratch field and calving budget on `grid`.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -35,15 +45,22 @@ julia> grid = RectilinearGrid(size = (4, 4), x = (0, 1), y = (0, 1), topology = 
 
 julia> PartialCellFront(grid; passes = 2)
 PartialCellFront(passes = 2)
+
+julia> PartialCellFront(grid; calving = ThicknessThresholdCalving(grid; thickness = 200))
+PartialCellFront(passes = 4, calving = ThicknessThresholdCalving(thickness = 200.0))
 ```
 """
-function PartialCellFront(grid::AbstractGrid; passes = 4)
+function PartialCellFront(grid::AbstractGrid; passes = 4, calving = nothing)
     passes ≥ 0 || throw(ArgumentError("passes must be non-negative, got $passes"))
     overflow = Field{Center, Center, Nothing}(grid)
-    return PartialCellFront(overflow, passes)
+    calved_thickness = Field{Center, Center, Nothing}(grid)
+    return PartialCellFront(overflow, calved_thickness, passes, calving)
 end
 
-Base.summary(front::PartialCellFront) = string("PartialCellFront(passes = ", front.passes, ")")
+calving_summary(::Nothing) = ""
+calving_summary(law) = string(", calving = ", summary(law))
+
+Base.summary(front::PartialCellFront) = string("PartialCellFront(passes = ", front.passes, calving_summary(front.calving), ")")
 Base.show(io::IO, front::PartialCellFront) = print(io, summary(front))
 
 #####
@@ -140,8 +157,9 @@ advance_front!(masking, model, Δt) = nothing
 $(TYPEDSIGNATURES)
 
 Empty the full cells that drained, update the ice thickness `Hʳ` of the front cells, fill the front cells that
-reached it and pass their excess volume to empty neighbors, up to `front.passes` times, then apply the surface
-mass balance and melt over `Δt` to the partial cells and to the cells that filled.
+reached it and pass their excess volume to empty neighbors, up to `front.passes` times, let the marine front cells
+calve under `front.calving`, then apply the surface mass balance and melt over `Δt` to the partial cells and to the
+cells that filled or calved.
 """
 function advance_front!(front::PartialCellFront, model, Δt)
     grid = model.grid
@@ -163,6 +181,8 @@ function advance_front!(front::PartialCellFront, model, Δt)
         launch!(arch, grid, :xy, _receive_overflow!, H, Hʳ, grid, ice_mask, O)
         fill_halo_regions!(H, model.clock, fields(model))
     end
+
+    calve_front!(front, front.calving, model, Δt)
 
     launch!(arch, grid, :xy, _force_front_cells!, H, Hʳ, ice_mask, model.geometry.clipped_thickness, model.surface_mass_balance, model.basal_melt_rate,
             floating_melt_fraction(model.grounding, model.geometry), coupled_grounded_melt(model.thermodynamics), Δt)
@@ -264,5 +284,67 @@ end
         H[i, j, 1] = ifelse(melted, zero(Hᵢ), ifelse(forced, Hⁿ, Hᵢ))
         Hʳ[i, j, 1] = ifelse(melted | full, zero(Hʳᵢ), ifelse(forced, Hʳᵢ + S * Δt, Hʳᵢ))
         μ[i, j, 1] = ifelse(melted, zero(eltype(μ)), μ[i, j, 1])
+    end
+end
+
+#####
+##### Calving retreat
+#####
+
+calve_front!(front, ::Nothing, model, Δt) = nothing
+
+front_side_walls(stress_balance) = FreeSlipWalls()
+front_side_walls(stress_balance::DepthIntegrated) = stress_balance.side_walls
+
+# Without a flow law the strain rates are not regularized and the von Mises stiffness `η̄H` stays zero.
+calving_flow_law(rheology, grid) = (rheology.exponent, rheology.strain_rate_regularization)
+calving_flow_law(::Nothing, grid) = (convert(eltype(grid), 3), zero(grid))
+
+function calve_front!(front, law, model, Δt)
+    grid = model.grid
+    arch = architecture(grid)
+    (; H, ice_mask, front_thickness, φ) = model.geometry
+    (; u, v) = model.velocities
+    n, ε̇₀ = calving_flow_law(model.rheology, grid)
+    f = front.overflow
+    walls = front_side_walls(model.stress_balance)
+    launch!(arch, grid, :xy, _compute_retreat_fraction!, f, grid, law, Δt, ice_mask, H, front_thickness, model.bed,
+            u, v, model.auxiliary.η̄H, H, φ, walls, n, ε̇₀)
+    launch!(arch, grid, :xy, _retreat_front_cells!, H, front_thickness, ice_mask, front.calved_thickness, f)
+    fill_halo_regions!((ice_mask, front_thickness))
+    fill_halo_regions!(H, model.clock, fields(model))
+    return nothing
+end
+
+@inline ocean_cell(i, j, k, grid, μ, H, b) = empty_cell(i, j, k, grid, μ, H) & (@inbounds(b[i, j, k]) < 0)
+@inline ocean_face_length(i, j, k, grid, μ, H, b, Δ) = ifelse(ocean_cell(i, j, k, grid, μ, H, b), Δ, zero(grid))
+
+# The thickness of the ice in the cell: its own when full or not yet given an `Hʳ`.
+@inline front_ice_thickness(i, j, k, μ, H, Hʳ) = @inbounds ifelse(full_cell(i, j, k, μ) | (Hʳ[i, j, k] ≤ 0), H[i, j, k], Hʳ[i, j, k])
+
+@kernel function _compute_retreat_fraction!(f, grid, law, Δt, μ, H, Hʳ, b, args...)
+    i, j = @index(Global, NTuple)
+    k = 1
+    Δx = Δxᶜᶜᶜ(i, j, k, grid)
+    Δy = Δyᶜᶜᶜ(i, j, k, grid)
+    ℓ = ocean_face_length(i-1, j, k, grid, μ, H, b, Δy) + ocean_face_length(i+1, j, k, grid, μ, H, b, Δy) +
+        ocean_face_length(i, j-1, k, grid, μ, H, b, Δx) + ocean_face_length(i, j+1, k, grid, μ, H, b, Δx)
+    Hᶠ = front_ice_thickness(i, j, k, μ, H, Hʳ)
+    front = (@inbounds(H[i, j, k]) > 0) & (ℓ > 0)
+    @inbounds f[i, j, k] = ifelse(front, retreat_fraction(i, j, k, grid, law, Δt, ℓ, Hᶠ, μ, args...), zero(grid))
+end
+
+# A calving cell keeps its ice thickness and loses covered area, so a full cell becomes partial.
+@kernel function _retreat_front_cells!(H, Hʳ, μ, Hᶜᵃ, f)
+    i, j = @index(Global, NTuple)
+    @inbounds begin
+        Hᵢ = H[i, j, 1]
+        Hᶠ = front_ice_thickness(i, j, 1, μ, H, Hʳ)
+        calves = f[i, j, 1] > 0
+        Hⁿ = max(Hᵢ - f[i, j, 1] * Hᶠ, zero(Hᵢ))
+        Hᶜᵃ[i, j, 1] += ifelse(calves, Hᵢ - Hⁿ, zero(Hᵢ))
+        H[i, j, 1] = ifelse(calves, Hⁿ, Hᵢ)
+        Hʳ[i, j, 1] = ifelse(calves, ifelse(Hⁿ > 0, Hᶠ, zero(Hᵢ)), Hʳ[i, j, 1])
+        μ[i, j, 1] = ifelse(calves, zero(eltype(μ)), μ[i, j, 1])
     end
 end
