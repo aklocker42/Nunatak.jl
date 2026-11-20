@@ -31,23 +31,26 @@ operator is integrated over its velocity cell, so the operator is symmetric posi
 - [`StressBalanceDiagonalPreconditioner`](@ref) (the default): the operator diagonal evaluated from the current
   coefficients, so it follows the Picard iterations without storage;
 - [`StressBalanceMultigridPreconditioner`](@ref): a geometric multigrid V-cycle. Each level halves the grid in
-  `x`, `y` or both and rediscretizes the operator. The smoother is ℓ1-Jacobi on lines in `y` ([`LineJacobi`](@ref),
-  the default) or on points ([`PointJacobi`](@ref)), so the V-cycle stays symmetric positive definite. It pays off
-  on large grids.
+  `x`, `y` or both and rediscretizes the operator. The smoother is ℓ1-Jacobi on points ([`PointJacobi`](@ref), the
+  default) or on lines in `y` ([`LineJacobi`](@ref)), so the V-cycle stays symmetric positive definite. On flowlines
+  and other grids much longer in `x` than in `y`, `LineJacobi()` needs far fewer iterations.
 
 On a MISMIP+ ice stream with a grounding line and a calving front (`benchmarks/multigrid_scaling.jl`, one SSA solve
-to a relative tolerance of ``10^{-8}``), the diagonal preconditioner needs twice the iterations each time the grid
-is refined, while multigrid stays nearly flat:
+from zero to a relative tolerance of ``10^{-8}``), the diagonal preconditioner needs twice the iterations each time
+the grid is refined, while multigrid stays nearly flat:
 
 | Δx | Grid | Diagonal: iterations, CPU / GPU time (s) | Multigrid: iterations, CPU / GPU time (s) |
 |---|---|---|---|
-| 8 km | 80 × 10 | 42, 0.01 / 0.03 | 14, 0.01 / 0.02 |
-| 4 km | 160 × 20 | 91, 0.01 / 0.05 | 18, 0.02 / 0.02 |
-| 2 km | 320 × 40 | 188, 0.05 / 0.15 | 20, 0.03 / 0.03 |
-| 1 km | 640 × 80 | 392, 0.33 / 0.22 | 22, 0.18 / 0.04 |
-| 0.5 km | 1280 × 160 | 817, 3.29 / 0.58 | 24, 0.52 / 0.05 |
+| 8 km | 80 × 10 | 42, 0.001 / 0.07 | 14, 0.002 / 0.03 |
+| 4 km | 160 × 20 | 91, 0.004 / 0.05 | 18, 0.007 / 0.08 |
+| 2 km | 320 × 40 | 188, 0.03 / 0.11 | 20, 0.02 / 0.04 |
+| 1 km | 640 × 80 | 392, 0.22 / 0.24 | 22, 0.10 / 0.06 |
+| 0.5 km | 1280 × 160 | 817, 1.9 / 0.59 | 24, 0.43 / 0.06 |
+| 0.25 km | 2560 × 320 | 1769, – / 1.3 | 27, – / 0.08 |
 
-CPU times are on four threads, GPU times on one NVIDIA H200.
+CPU times are on one thread of an AMD EPYC 9745, GPU times on one NVIDIA H200, both with the default `PointJacobi()`
+smoother. On both, multigrid is faster from 2 km (about 13 000 cells) on, and its time grows far more slowly with
+the grid size.
 
 The `schedule` of the solver (default `IterationInterval(1)`) can skip velocity solves between time steps.
 
