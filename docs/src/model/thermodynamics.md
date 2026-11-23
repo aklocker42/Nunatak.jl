@@ -46,6 +46,8 @@ since the last energy step.
   there.
 - With `grounded_melt_coupling = true`, the change of ``H_w`` is taken from the ice thickness, so ice and water mass
   is conserved.
+- With `effective_pressure = TillEffectivePressure(grid)`, ``H_w`` drains slowly, is capped at the till's capacity,
+  and sets the effective pressure of the friction law; see [Rheology and sliding](rheology_and_sliding.md).
 
 Set the initial state with `set!(model; E)` or `set!(model; T)`, as a function of ``(x, y, \zeta)``, a number or a
 `Field`. Otherwise the enthalpy starts at the surface value. The

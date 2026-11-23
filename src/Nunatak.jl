@@ -5,7 +5,7 @@ export TriangleMesh, NodeField, ElementField
 export IceSheetModel
 export DepthIntegrated, DIVAShear, FreeSlipWalls, NoSlipWalls, ShallowIce, ShallowIceSolver
 export GlenFlowLaw, ArrheniusRateFactor
-export EnthalpyThermodynamics
+export EnthalpyThermodynamics, TillEffectivePressure
 export WeertmanFriction, RegularizedCoulombFriction
 export SubgridGroundedFraction, IceSheetConstants, SmoothIceMask, PartialCellFront
 export StressBalanceSolver
@@ -61,6 +61,7 @@ include("Frictions/frictions.jl")
 include("StressBalances/stress_balance_coefficients.jl")
 include("StressBalances/diva.jl")
 include("Models/ice_sheet_constants.jl")
+include("Thermodynamics/till_effective_pressure.jl")
 include("Groundings/subgrid_grounded_fraction.jl")
 include("Solvers/iteration_controls.jl")
 include("Solvers/velocity_vector.jl")

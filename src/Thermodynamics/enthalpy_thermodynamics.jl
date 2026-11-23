@@ -42,12 +42,14 @@ in a local layer `Hw` without transport, and refreezes when the column draws hea
 Water above `drainage_water_fraction` drains from temperate layers into `Hw`. A temperate base under a
 temperate layer is insulating (Kleiner et al., 2015, Eq. 6), so all basal heat melts ice there. With
 `grounded_melt_coupling` the change of `Hw` is taken from the ice thickness, so ice and water mass is conserved.
+With `effective_pressure = TillEffectivePressure(grid)` the water drains slowly from the till, is capped at the
+till's capacity, and sets the effective pressure of the friction law.
 Horizontal advection is explicit and first-order upwind, so an energy step needs `u Δt / Δx ≤ 1`.
 Stepping the energy on a sparse `schedule` counts the elapsed time in that limit.
 
 $(TYPEDFIELDS)
 """
-struct EnthalpyThermodynamics{P, G, TS, TO, SC, ST, LT}
+struct EnthalpyThermodynamics{P, G, TS, TO, SC, ST, LT, EP}
     "`EnthalpyParameters`"
     parameters :: P
     "geothermal heat flux into the base `G` (W m⁻²)"
@@ -64,6 +66,8 @@ struct EnthalpyThermodynamics{P, G, TS, TO, SC, ST, LT}
     last_step_time :: LT
     "whether grounded melt and drainage thin the ice"
     grounded_melt_coupling :: Bool
+    "`TillEffectivePressure` that sets the effective pressure from `Hw`, or `nothing` for a bed connected to the ocean"
+    effective_pressure :: EP
 end
 
 """
@@ -102,6 +106,7 @@ function EnthalpyThermodynamics(grid;
                                 drainage_water_fraction = 0.01,
                                 maximum_drainage_rate = 1.58443823077064e-9,
                                 grounded_melt_coupling = true,
+                                effective_pressure = nothing,
                                 schedule = IterationInterval(1))
 
     FT = eltype(grid)
@@ -116,7 +121,7 @@ function EnthalpyThermodynamics(grid;
                                   parameter_field(grid, geothermal_flux),
                                   parameter_field(grid, surface_temperature),
                                   parameter_field(grid, ocean_temperature),
-                                  schedule, nothing, Ref(zero(FT)), grounded_melt_coupling)
+                                  schedule, nothing, Ref(zero(FT)), grounded_melt_coupling, effective_pressure)
 end
 
 Base.summary(th::EnthalpyThermodynamics) = string("EnthalpyThermodynamics(schedule = ", summary(th.schedule), ")")
@@ -150,9 +155,9 @@ function materialize_thermodynamics(thermodynamics::EnthalpyThermodynamics, grid
 
     state = (; E, T, ω, Hw, mᵍ, rᵇ, sᵇ, Dᵇ, qᵍ, Hⁿ, W, Φ, right_hand_side, column_solver)
 
-    (; parameters, geothermal_flux, surface_temperature, ocean_temperature, schedule, grounded_melt_coupling) = thermodynamics
+    (; parameters, geothermal_flux, surface_temperature, ocean_temperature, schedule, grounded_melt_coupling, effective_pressure) = thermodynamics
     materialized = EnthalpyThermodynamics(parameters, geothermal_flux, surface_temperature, ocean_temperature,
-                                          schedule, state, Ref(convert(FT, clock.time)), grounded_melt_coupling)
+                                          schedule, state, Ref(convert(FT, clock.time)), grounded_melt_coupling, effective_pressure)
 
     launch!(architecture(σgrid), σgrid, :xyz, _set_surface_enthalpy!, E, surface_temperature, parameters)
     return materialized

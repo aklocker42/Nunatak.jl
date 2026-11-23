@@ -27,6 +27,7 @@ include("toy_problems.jl")
     include("test_shallow_ice.jl")
     include("test_thickness.jl")
     include("test_thermodynamics.jl")
+    include("test_till_effective_pressure.jl")
     include("test_rate_factor.jl")
     include("test_model.jl")
 

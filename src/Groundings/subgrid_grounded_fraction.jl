@@ -143,7 +143,8 @@ $(TYPEDSIGNATURES)
 
 Compute the effective pressure `N = max(ρ_i g H + ρ_w g min(b, 0), 0)` at cell centers, for a bed
 connected to the ocean. `N` is zero at and seaward of the grounding line, so the Coulomb branch of
-`RegularizedCoulombFriction` takes friction smoothly to zero there.
+`RegularizedCoulombFriction` takes friction smoothly to zero there. With a `TillEffectivePressure` `law`,
+`N` follows from the basal water `Hw` instead, still capped by the ocean-connected value.
 
 ```jldoctest
 julia> using Oceananigans, Nunatak
@@ -164,17 +165,21 @@ julia> collect(interior(N, :, 1, 1))
   5.0
 ```
 """
-function compute_effective_pressure!(N, H, b, constants)
+function compute_effective_pressure!(N, H, b, constants, law = nothing, Hw = nothing)
     grid = H.grid
     ρᵢg = constants.ice_density * constants.gravitational_acceleration
     ρwg = constants.ocean_density * constants.gravitational_acceleration
-    launch!(architecture(grid), grid, size(N), _compute_effective_pressure!, N, H, b, ρᵢg, ρwg, grid)
+    launch!(architecture(grid), grid, size(N), _compute_effective_pressure!, N, H, b, Hw, law, ρᵢg, ρwg, grid)
     return nothing
 end
 
-@kernel function _compute_effective_pressure!(N, H, b, ρᵢg, ρwg, grid)
+@kernel function _compute_effective_pressure!(N, H, b, Hw, law, ρᵢg, ρwg, grid)
     i, j, k = @index(Global, NTuple)
-    @inbounds N[i, j, k] = max(ρᵢg * H[i, j, k] + ρwg * min(b[i, j, k], zero(grid)), zero(grid))
+    @inbounds begin
+        P₀ = ρᵢg * H[i, j, k]
+        Nᵒ = max(P₀ + ρwg * min(b[i, j, k], zero(grid)), zero(grid))
+        N[i, j, k] = effective_pressure(i, j, P₀, Nᵒ, Hw, law)
+    end
 end
 
 """
