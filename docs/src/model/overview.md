@@ -35,7 +35,7 @@ The keywords of [`IceSheetModel`](@ref) choose each component:
 | `rheology` | `GlenFlowLaw` with a constant, spatially varying or `ArrheniusRateFactor` rate factor | `nothing` (velocities stay fixed) |
 | `friction` | `WeertmanFriction`, `RegularizedCoulombFriction`, or `nothing` (free slip) | `nothing` |
 | `grounding` | `SubgridGroundedFraction()`, or `nothing` (all ice grounded) | `nothing` |
-| `masking` | `SmoothIceMask(grid)`, `PartialCellFront(grid)` | `SmoothIceMask(grid)` |
+| `masking` | `SmoothIceMask(grid)`, `PartialCellFront(grid; calving)` with `ThicknessThresholdCalving`, `EigenCalving`, `VonMisesCalving` or `nothing` | `SmoothIceMask(grid)` |
 | `thermodynamics` | `EnthalpyThermodynamics(grid; ...)`, or `nothing` (isothermal) | `nothing` |
 | `velocity_solver` | `StressBalanceSolver`, `ShallowIceSolver`, or `nothing` | chosen from the stress balance |
 | `advection` | any Oceananigans advection scheme | bounded fifth-order WENO; `Centered(order = 2)` with `ShallowIce()` |
@@ -78,7 +78,7 @@ Sea level is at ``z = 0``. From ``H`` and the bed ``b`` the model diagnoses
 `IceSheetModel` works with Oceananigans' `Simulation`, `run!`, output writers, `Checkpointer` and
 `TimeStepWizard`. Each step, `time_step!(model, Δt)` advances the thickness with a split Runge–Kutta scheme (three stages by default).
 Every stage restarts from the thickness at the start of the step, and in the final stage a [`PartialCellFront`](@ref) advances
-the calving front. After every stage `update_state!`
+the calving front and then calves it. After every stage `update_state!`
 
 1. diagnoses the geometry from the new thickness,
 2. solves the stress balance for the velocities, when the velocity solver's `schedule` actuates,

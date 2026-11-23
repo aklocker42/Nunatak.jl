@@ -18,7 +18,7 @@ gradients through whole simulations for inversions and sensitivity studies.
 - **Rheology and sliding**: Glen's flow law with a constant or Arrhenius rate factor, and Weertman or regularized
   Coulomb friction, with an effective pressure from the ocean connection or from till water.
 - **Grounding lines and calving fronts**: subgrid grounded fractions, calving-front stresses, and a front that
-  advances through partially filled cells.
+  advances through partially filled cells and retreats under thickness-threshold, eigen- or von Mises calving.
 - **Thermodynamics**: enthalpy with cold and temperate ice, basal water and strain heating, on a terrain-following
   σ-grid.
 - **Adjoints**: Enzyme reverse-mode rules for the velocity solve, including a fixed-point adjoint of the Picard

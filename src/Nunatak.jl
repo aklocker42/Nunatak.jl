@@ -8,6 +8,7 @@ export GlenFlowLaw, ArrheniusRateFactor
 export EnthalpyThermodynamics, TillEffectivePressure
 export WeertmanFriction, RegularizedCoulombFriction
 export SubgridGroundedFraction, IceSheetConstants, SmoothIceMask, PartialCellFront
+export ThicknessThresholdCalving, EigenCalving, VonMisesCalving
 export StressBalanceSolver
 export VelocityVector, VelocityConjugateGradientSolver, JacobiPreconditioner, StressBalanceDiagonalPreconditioner,
        StressBalanceMultigridPreconditioner, PointJacobi, LineJacobi
@@ -74,6 +75,7 @@ include("StressBalances/stress_balance_solver.jl")
 include("StressBalances/shallow_ice.jl")
 include("Models/smooth_ice_mask.jl")
 include("Models/partial_cell_front.jl")
+include("Models/calving.jl")
 include("Thermodynamics/enthalpy_thermodynamics.jl")
 include("Thermodynamics/enthalpy_conversions.jl")
 include("Thermodynamics/layer_transport.jl")

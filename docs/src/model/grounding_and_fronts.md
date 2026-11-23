@@ -48,12 +48,31 @@ and as in MITgcm STREAMICE:
   fraction ``H / H^r`` of it. It receives thickness from full neighbours flowing into it and passes none on.
 - At the end of each step ``H^r`` becomes the mean thickness of the full cells flowing in.
 - A partial cell whose mean thickness reaches ``H^r`` becomes full. It passes the excess volume to its empty
-  neighbours, up to `passes` times per step. `passes = 0` holds the front fixed.
+  neighbours, up to `passes` times per step. `passes = 0` stops the advance.
 - The transport conserves volume. Surface mass balance and melt act on full cells during the step, and then on
   the ice of partial cells, which empty when the melt removes all of it.
 
 ## Calving
 
-Nunatak has no calving law. A fixed calving front can be imposed in two ways. One is a `PartialCellFront` with
-`passes = 0`. The other is a large melt rate in the ocean beyond the front, which removes any ice that flows there;
-the [MISMIP+ benchmark](../literated/mismip_plus.md) does this.
+A `PartialCellFront` takes a calving law through its `calving` keyword. Calving acts on marine front cells, those
+that hold ice and have an empty neighbour with its bed below sea level. After the advance, a front cell of area
+``A`` with ocean faces of total length ``\ell`` loses the fraction ``c \, \Delta t \, \ell / A`` of its area, at
+the calving rate ``c``. It keeps its ice thickness, so a full cell that calves becomes partial. A partial cell
+has no stress balance of its own and takes ``c`` from its full neighbours. The removed thickness accumulates in
+`calved_thickness`, which closes the volume budget. The retreat is capped at one cell per step.
+
+- **[`ThicknessThresholdCalving`](@ref)** removes, in one step, a front cell whose ice is thinner than `thickness`.
+- **[`EigenCalving`](@ref)** [Levermann2012](@citep) retreats at ``c = K \max(\dot\varepsilon_1, 0) \max(\dot\varepsilon_2, 0)``,
+  with ``\dot\varepsilon_{1,2}`` the principal horizontal strain rates.
+- **[`VonMisesCalving`](@ref)** [Morlighem2016](@citep) retreats at ``c = |\mathbf{u}| \, \tilde\sigma / \sigma_\mathrm{max}``,
+  with the tensile von Mises stress ``\tilde\sigma = \sqrt{3} B \tilde\varepsilon^{1/n}``,
+  ``\tilde\varepsilon^2 = (\max(\dot\varepsilon_1, 0)^2 + \max(\dot\varepsilon_2, 0)^2) / 2``, ``B`` taken from the
+  depth-averaged viscosity, and ``\sigma_\mathrm{max}`` blended between its grounded and floating values by the
+  grounded fraction.
+
+The square roots and the power ``1/n`` are regularized with the flow law's `strain_rate_regularization`, so the
+rates stay differentiable where the ice does not deform.
+
+A fixed calving front can also be imposed without a calving law: either a `PartialCellFront` with `passes = 0`, or
+a large melt rate in the ocean beyond the front, which removes any ice that flows there; the
+[MISMIP+ benchmark](../literated/mismip_plus.md) does this.
