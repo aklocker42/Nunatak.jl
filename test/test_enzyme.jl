@@ -150,6 +150,17 @@ function ice_cap_velocity_cost(model, H₀)
     return sum_of_squares(model.velocities.u) + sum_of_squares(model.velocities.v)
 end
 
+# One eigencalving step from the front `(H, μ, Hʳ)`.
+function calving_cost(model, front₀, Δt)
+    H₀, μ₀, Hʳ₀ = front₀
+    parent(model.geometry.H) .= parent(H₀)
+    parent(model.geometry.ice_mask) .= parent(μ₀)
+    parent(model.geometry.front_thickness) .= parent(Hʳ₀)
+    fill!(model.masking.calved_thickness, 0)
+    Nunatak.advance_front!(model.masking, model, Δt)
+    return sum_of_squares(model.geometry.H)
+end
+
 function centered_difference(cost, field, index, h)
     i, j = index
     field[i, j, 1] += h
@@ -499,6 +510,28 @@ end
             ad = dmodel.surface_mass_balance[index..., 1]
             @info "∂J/∂a through the partial-cell front" index ad fd
             @test abs(ad - fd) < 1e-6 * abs(fd)
+        end
+    end
+
+    @testset "Eigencalving retreat through advance_front!" begin
+        Δx, Hⁱ, a, b = 1e3, 100, 1e-9, 1e-9
+        calving_grid = RectilinearGrid(arch; size = (12, 6), halo = (4, 4), x = (0, 12Δx), y = (0, 6Δx), topology = (Bounded, Bounded, Flat))
+        model = IceSheetModel(calving_grid; velocity_solver = nothing, bed = -500, rheology = GlenFlowLaw(calving_grid; rate_factor = 1e-24),
+                              masking = PartialCellFront(calving_grid; calving = EigenCalving(calving_grid; coefficient = 1e13)))
+        set!(model; H = (x, y) -> ifelse(x < 4Δx, Hⁱ, 0), u = (x, y) -> a * x, v = (x, y) -> b * y)
+        front₀ = deepcopy((model.geometry.H, model.geometry.ice_mask, model.geometry.front_thickness))
+        Δt = 1e7
+
+        dmodel = Enzyme.make_zero(model)
+        autodiff(set_runtime_activity(Reverse), calving_cost, Active, Duplicated(model, dmodel), Const(front₀), Const(Δt))
+        @test !any(isnan, parent(dmodel.velocities.u))
+
+        for index in ((4, 2), (4, 3))
+            fd = centered_difference(() -> calving_cost(model, front₀, Δt), model.velocities.u, index, 1e-12)
+            ad = dmodel.velocities.u[index..., 1]
+            @info "∂J/∂u through eigencalving" index ad fd
+            @test fd != 0
+            @test abs(ad - fd) < 1e-5 * abs(fd)
         end
     end
 
