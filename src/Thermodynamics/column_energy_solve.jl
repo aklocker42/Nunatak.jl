@@ -68,7 +68,7 @@ function advance_enthalpy!(model, thermodynamics, Δt)
 
     Oceananigans.Solvers.solve!(E, column_solver, right_hand_side)
 
-    launch!(arch, grid, :xy, _update_basal_water!, Hw, mᵍ, E, σgrid, H, φ, rᵇ, sᵇ, Dᵇ, qᵍ, parameters, constants, Δt)
+    launch!(arch, grid, :xy, _update_basal_water!, Hw, mᵍ, E, σgrid, H, φ, rᵇ, sᵇ, Dᵇ, qᵍ, thermodynamics.effective_pressure, parameters, constants, Δt)
 
     update_thermal_diagnostics!(model, thermodynamics)
     parent(Hⁿ) .= parent(H)
@@ -228,8 +228,8 @@ end
 end
 
 # Melt from the heat left at the base, ρ L m = r (qᵍ - χ q / r). Temperate layers then drain towards ω_d, and the
-# water joins the basal layer. Latent heat beyond the stored water is taken back from layer 1.
-@kernel function _update_basal_water!(Hw, mᵍ, E, σgrid, H, φ, rᵇ, sᵇ, Dᵇ, qᵍ, parameters, constants, Δt)
+# water joins the basal layer. Latent heat beyond the stored water is taken back from layer 1. Till drainage is lost water.
+@kernel function _update_basal_water!(Hw, mᵍ, E, σgrid, H, φ, rᵇ, sᵇ, Dᵇ, qᵍ, till, parameters, constants, Δt)
     i, j = @index(Global, NTuple)
     @inbounds begin
         Nσ = size(σgrid, 3)
@@ -253,7 +253,7 @@ end
         H⁺ = max(zero(H★), H★)
         missing_water = H⁺ - H★
         mᵍ[i, j, 1] = (H⁺ - Hw[i, j, 1]) / Δt
-        Hw[i, j, 1] = H⁺
+        Hw[i, j, 1] = drain_till(H⁺, till, Δt)
         E[i, j, 1] -= L * missing_water / (H̃ * layer_thickness(1, σgrid))
     end
 end

@@ -52,5 +52,20 @@ grounded fraction at the velocity point, so floating ice slides freely.
 which tends to Weertman ``C |u_b|^m`` for slow sliding and to Coulomb ``\alpha^2 N`` for fast sliding. Because the
 effective pressure ``N`` vanishes at the grounding line, friction goes smoothly to zero there.
 
+By default ``N = \max(\rho_i g H + \rho_w g \min(b, 0), 0)``, the effective pressure of a bed connected to the
+ocean. `EnthalpyThermodynamics(grid; effective_pressure = TillEffectivePressure(grid))` sets it instead from the
+basal water ``H_w`` of the thermodynamics, after the till model of [BuelerVanPelt2015](@citet):
+
+```math
+N = \min\left(N_0 \left(\frac{\delta P_o}{N_0}\right)^s 10^{(e_0 / C_c)(1 - s)}, \; N^o\right), \qquad
+s = \min\left(\frac{H_w}{W_\mathrm{max}}, 1\right),
+```
+
+with the overburden ``P_o = \rho_i g H`` and ``N^o`` the ocean-connected value, which keeps ``N = 0`` at flotation.
+A dry till carries ``N_0 10^{e_0 / C_c}``, a saturated one ``\delta P_o``. The defaults are
+``N_0 = 1000`` Pa, ``\delta = 0.02``, ``e_0 = 0.69``, ``C_c = 0.12`` and ``W_\mathrm{max} = 2`` m. The till
+water drains at ``C_d = 1`` mm per year and is capped at ``W_\mathrm{max}``; the drained and the excess water
+leave the model, as in the non-conserving till model of PISM.
+
 The friction coefficient ``C`` is a `Field`, so it can vary in space and be inverted for; see the
 [friction inversion example](../literated/friction_inversion.md).

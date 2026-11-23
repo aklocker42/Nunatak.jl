@@ -16,7 +16,7 @@ gradients through whole simulations for inversions and sensitivity studies.
 - **Velocity solver**: Picard iterations around a preconditioned conjugate-gradient solve, with Jacobi, diagonal
   or geometric-multigrid preconditioners.
 - **Rheology and sliding**: Glen's flow law with a constant or Arrhenius rate factor, and Weertman or regularized
-  Coulomb friction.
+  Coulomb friction, with an effective pressure from the ocean connection or from till water.
 - **Grounding lines and calving fronts**: subgrid grounded fractions, calving-front stresses, and a front that
   advances through partially filled cells.
 - **Thermodynamics**: enthalpy with cold and temperate ice, basal water and strain heating, on a terrain-following

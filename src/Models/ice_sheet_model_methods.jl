@@ -87,7 +87,7 @@ end
 
 function update_geometry_state!(model::ISM)
     fill_halo_regions!(model.geometry.H, model.clock, fields(model))
-    update_geometry!(model.geometry, model.grounding, model.masking, model.bed, model.constants)
+    update_geometry!(model.geometry, model.grounding, model.masking, model.bed, model.constants, model.thermodynamics)
     return nothing
 end
 
@@ -100,15 +100,18 @@ function maybe_update_velocities!(model, solver)
     return nothing
 end
 
-function update_geometry!(geometry, grounding, masking, b, constants)
+function update_geometry!(geometry, grounding, masking, b, constants, thermodynamics)
     (; H, s, φ, φᵘ, φᵛ, N, ice_mask) = geometry
     compute_surface_elevation!(s, grounding, H, b, constants)
     compute_grounded_fractions!(φ, φᵘ, φᵛ, grounding, H, b, constants)
-    compute_effective_pressure!(N, H, b, constants)
+    compute_effective_pressure!(N, H, b, constants, effective_pressure_law(thermodynamics)...)
     compute_ice_mask!(ice_mask, masking, H)
     fill_halo_regions!((s, N, ice_mask))
     return nothing
 end
+
+effective_pressure_law(::Nothing) = ()
+effective_pressure_law(thermodynamics) = (thermodynamics.effective_pressure, thermodynamics.state.Hw)
 
 update_velocities!(model, ::Nothing) = nothing
 update_velocities!(model, solver::StressBalanceSolver) = update_velocities!(model, solver, model.stress_balance)

@@ -69,7 +69,8 @@ Sea level is at ``z = 0``. From ``H`` and the bed ``b`` the model diagnoses
 - the surface ``s = \max\left(b + H, (1 - \rho_i/\rho_w) H\right)``: on the bed where the ice is grounded and in
   hydrostatic balance where it floats;
 - the grounded fractions ``\phi``, ``\phi^u``, ``\phi^v`` at cell centres and velocity points;
-- the effective pressure ``N = \max(\rho_i g H + \rho_w g \min(b, 0), 0)``, which vanishes at and beyond the grounding line;
+- the effective pressure ``N = \max(\rho_i g H + \rho_w g \min(b, 0), 0)``, which vanishes at and beyond the grounding line,
+  or the till effective pressure from the basal water with `TillEffectivePressure`;
 - the ice mask ``\mu``, which removes ice-free cells from the stress balance.
 
 ## One time step
