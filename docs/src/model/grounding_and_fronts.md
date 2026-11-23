@@ -56,10 +56,15 @@ and as in MITgcm STREAMICE:
 
 A `PartialCellFront` takes a calving law through its `calving` keyword. Calving acts on marine front cells, those
 that hold ice and have an empty neighbour with its bed below sea level. After the advance, a front cell of area
-``A`` with ocean faces of total length ``\ell`` loses the fraction ``c \, \Delta t \, \ell / A`` of its area, at
-the calving rate ``c``. It keeps its ice thickness, so a full cell that calves becomes partial. A partial cell
-has no stress balance of its own and takes ``c`` from its full neighbours. The removed thickness accumulates in
-`calved_thickness`, which closes the volume budget. The retreat is capped at one cell per step.
+``A`` loses the fraction ``c \, \Delta t \, \ell / A`` of its area, at the calving rate ``c``, measured along the
+flow. Here ``\ell = (|\bar u| \ell_x + |\bar v| \ell_y) / |\bar{\mathbf{u}}|`` is the length of the cell's ocean
+faces projected across the flow, with ``\ell_x`` and ``\ell_y`` the lengths of its ocean faces normal to ``x`` and
+``y``. Ice calving at its own speed then removes exactly what flows out through those faces, so a front on a
+staircase of cells holds still. The cell keeps its ice thickness, so a full cell that calves becomes partial. A
+partial cell has no stress balance of its own and takes ``c`` from its full neighbours. When a partial cell
+empties, the rate laws pass the retreat it could not take, shared equally, to its neighbours that hold ice; what
+they cannot take is lost, so the retreat is capped at about one cell per step. The removed thickness accumulates
+in `calved_thickness`, which closes the volume budget.
 
 - **[`ThicknessThresholdCalving`](@ref)** removes, in one step, a front cell whose ice is thinner than `thickness`.
 - **[`EigenCalving`](@ref)** [Levermann2012](@citep) retreats at ``c = K \max(\dot\varepsilon_1, 0) \max(\dot\varepsilon_2, 0)``,
@@ -69,6 +74,11 @@ has no stress balance of its own and takes ``c`` from its full neighbours. The r
   ``\tilde\varepsilon^2 = (\max(\dot\varepsilon_1, 0)^2 + \max(\dot\varepsilon_2, 0)^2) / 2``, ``B`` taken from the
   depth-averaged viscosity, and ``\sigma_\mathrm{max}`` blended between its grounded and floating values by the
   grounded fraction.
+- **[`FrontVelocityCalving`](@ref)** sets the front velocity ``w`` instead: ``c = (1 - \phi) \max(|\mathbf{u}| - w, 0)``,
+  so a floating front moves at ``w`` along the flow, advancing for ``0 < w < |\mathbf{u}|`` and retreating for
+  ``w < 0``; grounded ice does not calve. The CalvingMIP experiments prescribe ``w`` as a function of time.
+- **[`MaximumExtentCalving`](@ref)** removes front cells outside a fixed `extent`, which holds a front that
+  would otherwise advance, as in the CalvingMIP spin-up.
 
 The square roots and the power ``1/n`` are regularized with the flow law's `strain_rate_regularization`, so the
 rates stay differentiable where the ice does not deform.

@@ -3,11 +3,11 @@ using Oceananigans.Operators: Azᶜᶜᶜ
 
 # Floating channel of full cells up to `Nfull`, with open ocean beyond, under prescribed velocities.
 function calving_channel_model(calving; Nx = 12, Ny = 4, Δx = 1e3, H₀ = 100, Nfull = 4, bed = -500,
-                               y_topology = Periodic, u = 0, v = 0, rheology = grid -> nothing)
+                               y_topology = Periodic, u = 0, v = 0, rheology = grid -> nothing, grounding = nothing)
     grid = RectilinearGrid(arch; size = (Nx, Ny), halo = (4, 4), x = (0, Nx * Δx), y = (0, Ny * Δx),
                            topology = (Bounded, y_topology, Flat))
     rheology = rheology(grid)
-    model = IceSheetModel(grid; velocity_solver = nothing, bed, rheology, masking = PartialCellFront(grid; calving = calving(grid)))
+    model = IceSheetModel(grid; velocity_solver = nothing, bed, rheology, grounding, masking = PartialCellFront(grid; calving = calving(grid)))
     set!(model; H = (x, y) -> ifelse(x < Nfull * Δx, H₀, 0), u, v)
     return model
 end
@@ -83,7 +83,9 @@ cpu_field(f) = Array(interior(f, :, :, 1))
             ε̇xy = -b * y / 4Δx
             r = sqrt(((a - b) / 2)^2 + ε̇xy^2 + ε̇₀^2)
             c = K * max((a + b) / 2 + r, 0) * max((a + b) / 2 - r, 0)
-            return min(1, c * Δt / Δx)
+            # The east face is projected across the flow.
+            ū, v̄ = a * (Nfull - 1 / 2) * Δx, b * y
+            return min(1, c * Δt * ū / sqrt(ū^2 + v̄^2) / Δx)
         end
         H = cpu_field(model.geometry.H)
         @test all(0 .< f .< 1)
@@ -118,6 +120,53 @@ cpu_field(f) = Array(interior(f, :, :, 1))
         f′ = speed((Nfull - 3 / 2) * a * Δx) * σ̃ / σᵐᵃˣ * Δt / Δx
         advance_front!(model.masking, model, Δt)
         @test all(cpu_field(model.geometry.H)[Nfull, :] .≈ H₀ * (1 - f - f′))
+        @test ice_volume(model) + calved_volume(model) ≈ V₀
+    end
+
+    @testset "Front velocity calving moves a floating front at the set velocity" begin
+        H₀, Nfull, Δx, U, Δt = 100, 4, 1e3, 1e-6, 1e8
+        for w in (0, -2U)
+            model = calving_channel_model(grid -> FrontVelocityCalving(grid; front_velocity = t -> w); H₀, Nfull, Δx, u = U,
+                                          grounding = SubgridGroundedFraction())
+            V₀ = ice_volume(model)
+            advance_front!(model.masking, model, Δt)
+            f = (U - w) * Δt / Δx
+            @test all(cpu_field(model.geometry.H)[Nfull, :] .≈ H₀ * (1 - f))
+            @test all(cpu_field(model.geometry.ice_mask)[Nfull, :] .== 0)
+            @test all(cpu_field(model.geometry.H)[1:Nfull - 1, :] .== H₀)
+            @test ice_volume(model) + calved_volume(model) ≈ V₀
+        end
+    end
+
+    @testset "Front velocity calving passes the retreat an emptied partial cell could not take to the ice behind" begin
+        H₀, Nfull, Δx, U, Δt, w = 100, 4, 1e3, 1e-6, 1e8, -5e-6
+        model = calving_channel_model(grid -> FrontVelocityCalving(grid; front_velocity = w); H₀, Nfull, Δx, u = U,
+                                      grounding = SubgridGroundedFraction())
+        H, μ, Hʳ = model.geometry.H, model.geometry.ice_mask, model.geometry.front_thickness
+        interior(H, Nfull + 1, :, 1) .= H₀ / 4
+        interior(Hʳ, Nfull + 1, :, 1) .= H₀
+        fill_halo_regions!((H, μ, Hʳ))
+        V₀ = ice_volume(model)
+        advance_front!(model.masking, model, Δt)
+        f = (U - w) * Δt / Δx
+        @test 1 / 4 < f < 1
+        @test all(iszero, cpu_field(H)[Nfull + 1, :])
+        @test all(cpu_field(H)[Nfull, :] .≈ H₀ * (1 - (f - 1 / 4)))
+        @test all(cpu_field(μ)[Nfull, :] .== 0)
+        @test all(cpu_field(H)[1:Nfull - 1, :] .== H₀)
+        @test ice_volume(model) + calved_volume(model) ≈ V₀
+    end
+
+    @testset "Maximum extent calving removes the front column outside the extent and keeps the rest" begin
+        H₀, Nfull, Δx = 100, 4, 1e3
+        model = calving_channel_model(grid -> MaximumExtentCalving(grid; extent = (x, y) -> (Nfull - 1) * Δx - x); H₀, Nfull, Δx)
+        V₀ = ice_volume(model)
+        for _ in 1:2
+            advance_front!(model.masking, model, 1)
+            @test all(iszero, cpu_field(model.geometry.H)[Nfull:end, :])
+            @test all(cpu_field(model.geometry.H)[1:Nfull - 1, :] .== H₀)
+            @test all(cpu_field(model.geometry.ice_mask)[1:Nfull - 1, :] .== 1)
+        end
         @test ice_volume(model) + calved_volume(model) ≈ V₀
     end
 end
