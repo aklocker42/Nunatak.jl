@@ -41,15 +41,17 @@ julia> size(σgrid)
 ```
 """
 function SigmaGrid(grid::RectilinearGrid; Nσ = 10, bed_refinement = 2)
-    TX, TY, TZ = topology(grid)
+    # a distributed grid is rebuilt globally, so the σ grid is partitioned once, like `grid`
+    global_grid = reconstruct_global_grid(grid)
+    TX, TY, TZ = topology(global_grid)
     TZ === Flat || throw(ArgumentError("SigmaGrid needs a horizontal grid with Flat z topology, got $TZ"))
 
-    Nx, Ny, _ = size(grid)
-    Hx, Hy, _ = halo_size(grid)
+    Nx, Ny, _ = size(global_grid)
+    Hx, Hy, _ = halo_size(global_grid)
     topo = (TX, TY, Bounded)
 
-    horizontal = (x = cpu_face_constructor_x(grid),
-                  y = cpu_face_constructor_y(grid))
+    horizontal = (x = cpu_face_constructor_x(global_grid),
+                  y = cpu_face_constructor_y(global_grid))
 
     horizontal = NamedTuple(name => value for (name, value, T) in zip(keys(horizontal), values(horizontal), (TX, TY)) if T !== Flat)
 

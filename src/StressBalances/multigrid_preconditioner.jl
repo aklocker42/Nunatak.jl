@@ -35,7 +35,8 @@ $(TYPEDSIGNATURES)
 
 Build a `StressBalanceMultigridPreconditioner` on `grid`. A direction is halved while its size is even and the coarse
 grid keeps at least `minimum_coarse_size` cells, and no fewer cells than halo points, in that direction; coarsening
-stops when neither direction can be halved. `smoother` is `PointJacobi()` or `LineJacobi()`; use `LineJacobi()` on
+stops when neither direction can be halved. On a distributed grid every rank halves its own part, so each coarse
+grid is partitioned like `grid`; partitions must be equal. `smoother` is `PointJacobi()` or `LineJacobi()`; use `LineJacobi()` on
 grids much longer in `x` than in `y`, such as flowlines.
 
 ```jldoctest
@@ -83,12 +84,17 @@ struct Unchanged end
 coarsening_factor(::Halved) = 2
 coarsening_factor(::Unchanged) = 1
 
-coarsening(N, H, minimum_coarse_size) = ifelse(iseven(N) & (N ÷ 2 ≥ max(minimum_coarse_size, H)), Halved(), Unchanged())
+# A direction is halved only if every rank can halve its part.
+function coarsening(N, H, minimum_coarse_size, arch)
+    halvable = iseven(N) & (N ÷ 2 ≥ max(minimum_coarse_size, H))
+    return ifelse(all_reduce(min, Int(halvable), arch) == 1, Halved(), Unchanged())
+end
 
 function coarse_levels(grid, minimum_coarse_size)
     Nx, Ny, _ = size(grid)
     Hx, Hy, _ = halo_size(grid)
-    return coarse_levels(grid, coarsening(Nx, Hx, minimum_coarse_size), coarsening(Ny, Hy, minimum_coarse_size), minimum_coarse_size)
+    arch = architecture(grid)
+    return coarse_levels(grid, coarsening(Nx, Hx, minimum_coarse_size, arch), coarsening(Ny, Hy, minimum_coarse_size, arch), minimum_coarse_size)
 end
 
 coarse_levels(grid, ::Unchanged, ::Unchanged, minimum_coarse_size) = ()
@@ -109,14 +115,17 @@ function coarse_levels(grid, cx, cy, minimum_coarse_size)
 end
 
 function coarsened_grid(grid, cx, cy)
-    cpu_grid = on_architecture(CPU(), grid)
-    Nx, Ny, _ = size(grid)
+    global_grid = on_architecture(CPU(), reconstruct_global_grid(grid))
+    Nx, Ny, _ = size(global_grid)
     Hx, Hy, _ = halo_size(grid)
-    TX, TY, _ = topology(grid)
+    TX, TY, _ = topology(global_grid)
     fx, fy = coarsening_factor(cx), coarsening_factor(cy)
-    x = [xnode(i, cpu_grid, Face()) for i in 1:fx:Nx+1]
-    y = [ynode(j, cpu_grid, Face()) for j in 1:fy:Ny+1]
-    return RectilinearGrid(architecture(grid), eltype(grid); size = (Nx ÷ fx, Ny ÷ fy), halo = (Hx, Hy), x, y, topology = (TX, TY, Flat))
+    x = [xnode(i, global_grid, Face()) for i in 1:fx:Nx+1]
+    y = [ynode(j, global_grid, Face()) for j in 1:fy:Ny+1]
+    coarse = RectilinearGrid(architecture(grid), eltype(grid); size = (Nx ÷ fx, Ny ÷ fy), halo = (Hx, Hy), x, y, topology = (TX, TY, Flat))
+    size(coarse, 1) * fx == size(grid, 1) && size(coarse, 2) * fy == size(grid, 2) ||
+        throw(ArgumentError("the coarse grid is not partitioned like $(size(grid)) grid; use equal partitions"))
+    return coarse
 end
 
 function precondition!(z::VelocityVector, P::StressBalanceMultigridPreconditioner, r::VelocityVector, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, args...)
@@ -133,6 +142,7 @@ function coarsen_coefficients!(levels::Tuple, η̄H, βᵘ, βᵛ)
     level = first(levels)
     grid = level.grid
     arch = architecture(grid)
+    fill_halo_regions!((βᵘ, βᵛ))
     launch!(arch, grid, :xyz, _coarsen_coefficients!, level.η̄H, level.βᵘ, level.βᵛ, η̄H, βᵘ, βᵛ, level.coarsening..., grid, η̄H.grid)
     fill_halo_regions!(level.η̄H)
     launch!(arch, grid, size(level.η̄Hᶠᶠ), _interpolate_to_corners!, level.η̄Hᶠᶠ, level.η̄H, grid)
@@ -154,9 +164,11 @@ function v_cycle!(x, b, q, t, coefficients, levels::Tuple, walls, P)
     fill_halo_regions!(x)
     ssa_operator!(q, x, coefficients.η̄H, coefficients.η̄Hᶠᶠ, coefficients.βᵘ, coefficients.βᵛ, walls)
     subtract!(q, b, q)
+    fill_halo_regions!(q)
     restrict!(coarse.b, q, coarse.η̄H, coefficients.η̄H, coarse.coarsening)
     coarse_coefficients = (η̄H = coarse.η̄H, η̄Hᶠᶠ = coarse.η̄Hᶠᶠ, βᵘ = coarse.βᵘ, βᵛ = coarse.βᵛ)
     v_cycle!(coarse.x, coarse.b, coarse.q, coarse.scratch, coarse_coefficients, Base.tail(levels), walls, P)
+    fill_halo_regions!(coarse.x)
     prolongate!(x, coarse.x, coefficients.η̄H, coarse.η̄H, coarse.coarsening)
     smooth!(x, b, q, t, coefficients, walls, P.smoother, P.smoothing_sweeps)
     return nothing
@@ -259,25 +271,33 @@ end
 end
 
 # Fine faces `2I - 1 + a`, `a ∈ -1:1`, restrict onto coarse face `I` with weights 1/2, 1, 1/2; fine centers
-# `2J - 1 + b`, `b ∈ -1:2`, onto coarse center `J` with weights 1/4, 3/4, 3/4, 1/4, folded at `Bounded` edges.
-# An `Unchanged` direction transfers point to point.
+# `2J - 1 + b`, `b ∈ -1:2`, onto coarse center `J` with weights 1/4, 3/4, 3/4, 1/4, folded at `Closed` sides.
+# Across a `Connected` side the stencil reads the filled halo. An `Unchanged` direction transfers point to point.
 @inline restriction_offsets(::Face, ::Halved) = -1:1
 @inline restriction_offsets(::Center, ::Halved) = -1:2
 @inline restriction_offsets(ℓ, ::Unchanged) = 0:0
 
+@inline closed_left(::TwoSided{Closed}) = true
+@inline closed_left(topology) = false
+@inline closed_right(::TwoSided{<:Any, Closed}) = true
+@inline closed_right(topology) = false
+
 @inline restriction_index(I, a, N, ::Periodic, ℓ, ::Halved) = mod1(2I - 1 + a, N)
-@inline restriction_index(I, a, N, ::Bounded, ::Face, ::Halved) = max(2I - 1 + a, 1)
-@inline restriction_index(I, a, N, ::Bounded, ::Center, ::Halved) = clamp(2I - 1 + a, 1, N)
+@inline restriction_index(I, a, N, topology::TwoSided, ::Face, ::Halved) = ifelse(closed_left(topology), max(2I - 1 + a, 1), 2I - 1 + a)
+@inline restriction_index(I, a, N, topology::TwoSided, ::Center, ::Halved) =
+    clamp(2I - 1 + a, ifelse(closed_left(topology), 1, 0), ifelse(closed_right(topology), N, N + 1))
 @inline restriction_index(I, a, N, topology, ℓ, ::Unchanged) = I
 
 @inline restriction_weight(I, a, Nc, ::Periodic, ::Face, ::Halved, FT) = ifelse(a == 0, one(FT), one(FT) / 2)
-@inline restriction_weight(I, a, Nc, ::Bounded, ::Face, ::Halved, FT) = ifelse(2I - 1 + a < 1, zero(FT), restriction_weight(I, a, Nc, Periodic(), Face(), Halved(), FT))
+@inline restriction_weight(I, a, Nc, topology::TwoSided, ::Face, ::Halved, FT) =
+    ifelse(closed_left(topology) & (2I - 1 + a < 1), zero(FT), restriction_weight(I, a, Nc, Periodic(), Face(), Halved(), FT))
 @inline restriction_weight(I, a, Nc, ::Periodic, ::Center, ::Halved, FT) = ifelse((a == 0) | (a == 1), 3 * one(FT) / 4, one(FT) / 4)
 @inline restriction_weight(I, a, Nc, topology, ℓ, ::Unchanged, FT) = one(FT)
 
-@inline function restriction_weight(I, a, Nc, ::Bounded, ::Center, ::Halved, FT)
-    outside = ((I == 1) & (a == -1)) | ((I == Nc) & (a == 2))
-    folded = ((I == 1) & (a == 0)) | ((I == Nc) & (a == 1))
+@inline function restriction_weight(I, a, Nc, topology::TwoSided, ::Center, ::Halved, FT)
+    left, right = closed_left(topology) & (I == 1), closed_right(topology) & (I == Nc)
+    outside = (left & (a == -1)) | (right & (a == 2))
+    folded = (left & (a == 0)) | (right & (a == 1))
     w = restriction_weight(I, a, Nc, Periodic(), Center(), Halved(), FT) + ifelse(folded, one(FT) / 4, zero(FT))
     return ifelse(outside, zero(FT), w)
 end
@@ -299,10 +319,10 @@ end
 @inline parents(i, Nc, topology, ℓ, ::Unchanged, FT) = i, i, one(FT), zero(FT)
 
 @inline upper_face(I, Nc, ::Periodic) = mod1(I + 1, Nc)
-@inline upper_face(I, Nc, ::Bounded) = I + 1
+@inline upper_face(I, Nc, ::TwoSided) = I + 1
 
 @inline adjacent_center(I, Nc, ::Periodic) = mod1(I, Nc)
-@inline adjacent_center(I, Nc, ::Bounded) = clamp(I, 1, Nc)
+@inline adjacent_center(I, Nc, topology::TwoSided) = clamp(I, ifelse(closed_left(topology), 1, 0), ifelse(closed_right(topology), Nc, Nc + 1))
 
 @inline function restrict(I, J, k, ℓx, ℓy, cx, cy, coarse_grid, fine_grid, ϕ, args...)
     TX, TY, _ = topology(fine_grid)

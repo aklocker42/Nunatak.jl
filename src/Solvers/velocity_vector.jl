@@ -128,8 +128,8 @@ end
 
 function component_dot!(w, x, y)
     launch!(architecture(w.grid), w.grid, :xyz, _product!, w, x, y)
-    # halos and wall faces of w stay zero, so the parent sum is the interior sum
-    return sum(parent(w))
+    # halos and wall faces of w stay zero, so the parent sum is the interior sum of this rank
+    return all_reduce(+, sum(parent(w)), architecture(w.grid))
 end
 
 @kernel function _product!(w, x, y)
