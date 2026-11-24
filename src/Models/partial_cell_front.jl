@@ -14,11 +14,14 @@ drain to `H = 0` become empty. Surface mass balance and basal melt act on full c
 as in STREAMICE, on the ice of the partial cells and of the cells that filled, which empty when the melt
 removes all of it.
 
-A `calving` law (`ThicknessThresholdCalving`, `EigenCalving` or `VonMisesCalving`) makes marine front cells, those
-with an empty neighbor below sea level, retreat after the advance. A front cell loses the fraction `c Δt ℓ / A` of its
-area, with `c` the calving rate, `ℓ` the length of its ocean faces and `A` its area; a full cell that loses ice
-becomes partial. Partial cells take `c` from their full neighbors. The removed thickness accumulates in
-`calved_thickness`. Retreat stops at the front cell: a rate faster than one cell per step is capped there.
+A `calving` law (`ThicknessThresholdCalving`, `EigenCalving`, `VonMisesCalving`, `FrontVelocityCalving` or
+`MaximumExtentCalving`) makes marine front cells, those with an empty neighbor below sea level, retreat after the
+advance. A front cell loses the fraction `c Δt ℓ / A` of its area, with `c` the calving rate, `ℓ` the length of
+its ocean faces projected across the flow and `A` its area; a full cell that loses ice becomes partial. Partial
+cells take `c` from their full neighbors. Under a rate law, the retreat an emptied cell could not take passes,
+shared equally, to its neighbors with ice; what they cannot take is lost, so retreat is capped at about one cell
+per step.
+The removed thickness accumulates in `calved_thickness`.
 
 $(TYPEDFIELDS)
 """
@@ -309,8 +312,13 @@ function calve_front!(front, law, model, Δt)
     f = front.overflow
     walls = front_side_walls(model.stress_balance)
     launch!(arch, grid, :xy, _compute_retreat_fraction!, f, grid, law, Δt, ice_mask, H, front_thickness, model.bed,
-            u, v, model.auxiliary.η̄H, H, φ, walls, n, ε̇₀)
-    launch!(arch, grid, :xy, _retreat_front_cells!, H, front_thickness, ice_mask, front.calved_thickness, f)
+            u, v, model.auxiliary.η̄H, H, φ, walls, n, ε̇₀, model.clock.time)
+    launch!(arch, grid, :xy, _retreat_front_cells!, H, front_thickness, ice_mask, front.calved_thickness, f, grid, law)
+    fill_halo_regions!(f)
+    fill_halo_regions!(H, model.clock, fields(model))
+    launch!(arch, grid, :xy, _share_residual_retreat!, f, grid, H)
+    fill_halo_regions!(f)
+    launch!(arch, grid, :xy, _receive_residual_retreat!, H, front_thickness, ice_mask, front.calved_thickness, f, grid)
     fill_halo_regions!((ice_mask, front_thickness))
     fill_halo_regions!(H, model.clock, fields(model))
     return nothing
@@ -322,29 +330,74 @@ end
 # The thickness of the ice in the cell: its own when full or not yet given an `Hʳ`.
 @inline front_ice_thickness(i, j, k, μ, H, Hʳ) = @inbounds ifelse(full_cell(i, j, k, μ) | (Hʳ[i, j, k] ≤ 0), H[i, j, k], Hʳ[i, j, k])
 
-@kernel function _compute_retreat_fraction!(f, grid, law, Δt, μ, H, Hʳ, b, args...)
+# The front length is that of the ocean faces projected across the flow, so calving at the ice speed cancels the
+# outflow through them; without flow it is the length of their vector sum, or their total where they cancel.
+@inline function front_length(i, j, k, grid, ℓʷ, ℓᵉ, ℓˢ, ℓⁿ, μ, u, v)
+    ū = abs(ℑxᶜᵃᵃ(i, j, k, grid, interior_u, u, μ))
+    v̄ = abs(ℑyᵃᶜᵃ(i, j, k, grid, interior_v, v, μ))
+    speed = sqrt(ū^2 + v̄^2)
+    ℓ² = (ℓᵉ - ℓʷ)^2 + (ℓⁿ - ℓˢ)^2
+    ℓᵛ = ifelse(ℓ² > 0, sqrt(ifelse(ℓ² > 0, ℓ², one(grid))), ℓʷ + ℓᵉ + ℓˢ + ℓⁿ)
+    ℓᵘ = (ū * (ℓʷ + ℓᵉ) + v̄ * (ℓˢ + ℓⁿ)) / ifelse(speed > 0, speed, one(grid))
+    return ifelse(speed > 0, ℓᵘ, ℓᵛ)
+end
+
+@kernel function _compute_retreat_fraction!(f, grid, law, Δt, μ, H, Hʳ, b, u, v, args...)
     i, j = @index(Global, NTuple)
     k = 1
     Δx = Δxᶜᶜᶜ(i, j, k, grid)
     Δy = Δyᶜᶜᶜ(i, j, k, grid)
-    ℓ = ocean_face_length(i-1, j, k, grid, μ, H, b, Δy) + ocean_face_length(i+1, j, k, grid, μ, H, b, Δy) +
-        ocean_face_length(i, j-1, k, grid, μ, H, b, Δx) + ocean_face_length(i, j+1, k, grid, μ, H, b, Δx)
+    ℓʷ = ocean_face_length(i-1, j, k, grid, μ, H, b, Δy)
+    ℓᵉ = ocean_face_length(i+1, j, k, grid, μ, H, b, Δy)
+    ℓˢ = ocean_face_length(i, j-1, k, grid, μ, H, b, Δx)
+    ℓⁿ = ocean_face_length(i, j+1, k, grid, μ, H, b, Δx)
+    ℓ = front_length(i, j, k, grid, ℓʷ, ℓᵉ, ℓˢ, ℓⁿ, μ, u, v)
     Hᶠ = front_ice_thickness(i, j, k, μ, H, Hʳ)
-    front = (@inbounds(H[i, j, k]) > 0) & (ℓ > 0)
-    @inbounds f[i, j, k] = ifelse(front, retreat_fraction(i, j, k, grid, law, Δt, ℓ, Hᶠ, μ, args...), zero(grid))
+    front = (@inbounds(H[i, j, k]) > 0) & (ℓʷ + ℓᵉ + ℓˢ + ℓⁿ > 0)
+    @inbounds f[i, j, k] = ifelse(front, retreat_fraction(i, j, k, grid, law, Δt, ℓ, Hᶠ, μ, u, v, args...), zero(grid))
 end
 
-# A calving cell keeps its ice thickness and loses covered area, so a full cell becomes partial.
-@kernel function _retreat_front_cells!(H, Hʳ, μ, Hᶜᵃ, f)
-    i, j = @index(Global, NTuple)
+# Remove the fraction `g` of the cell's area; a calving cell keeps its ice thickness, so a full cell becomes partial.
+# Returns the part of `g` beyond the ice the cell holds.
+@inline function remove_front_fraction!(i, j, H, Hʳ, μ, Hᶜᵃ, g)
     @inbounds begin
         Hᵢ = H[i, j, 1]
         Hᶠ = front_ice_thickness(i, j, 1, μ, H, Hʳ)
-        calves = f[i, j, 1] > 0
-        Hⁿ = max(Hᵢ - f[i, j, 1] * Hᶠ, zero(Hᵢ))
+        calves = (g > 0) & (Hᵢ > 0)
+        Hⁿ = max(Hᵢ - g * Hᶠ, zero(Hᵢ))
+        a = ifelse(Hᶠ > 0, Hᵢ / ifelse(Hᶠ > 0, Hᶠ, one(Hᶠ)), zero(Hᵢ))
         Hᶜᵃ[i, j, 1] += ifelse(calves, Hᵢ - Hⁿ, zero(Hᵢ))
         H[i, j, 1] = ifelse(calves, Hⁿ, Hᵢ)
         Hʳ[i, j, 1] = ifelse(calves, ifelse(Hⁿ > 0, Hᶠ, zero(Hᵢ)), Hʳ[i, j, 1])
         μ[i, j, 1] = ifelse(calves, zero(eltype(μ)), μ[i, j, 1])
     end
+    return ifelse(calves, max(g - a, zero(g)), zero(g))
+end
+
+# `f` becomes the area (m²) of retreat left over once the cell is empty.
+@kernel function _retreat_front_cells!(H, Hʳ, μ, Hᶜᵃ, f, grid, law)
+    i, j = @index(Global, NTuple)
+    r = remove_front_fraction!(i, j, H, Hʳ, μ, Hᶜᵃ, @inbounds(f[i, j, 1]))
+    @inbounds f[i, j, 1] = residual_retreat(law, r) * Azᶜᶜᶜ(i, j, 1, grid)
+end
+
+@inline ice_neighbor_count(i, j, k, grid, H) = ifelse(!inactive_cell(i, j, k, grid) & (@inbounds(H[i, j, k]) > 0), 1, 0)
+
+@kernel function _share_residual_retreat!(f, grid, H)
+    i, j = @index(Global, NTuple)
+    k = 1
+    n = ice_neighbor_count(i-1, j, k, grid, H) + ice_neighbor_count(i+1, j, k, grid, H) +
+        ice_neighbor_count(i, j-1, k, grid, H) + ice_neighbor_count(i, j+1, k, grid, H)
+    @inbounds f[i, j, k] = ifelse(n > 0, f[i, j, k] / max(n, 1), zero(grid))
+end
+
+@inline residual_area(i, j, k, grid, f) = ifelse(inactive_cell(i, j, k, grid), zero(grid), @inbounds(f[i, j, k]))
+
+# Retreat stops here: what the receiving cell cannot take is not passed on.
+@kernel function _receive_residual_retreat!(H, Hʳ, μ, Hᶜᵃ, f, grid)
+    i, j = @index(Global, NTuple)
+    k = 1
+    A = residual_area(i-1, j, k, grid, f) + residual_area(i+1, j, k, grid, f) +
+        residual_area(i, j-1, k, grid, f) + residual_area(i, j+1, k, grid, f)
+    remove_front_fraction!(i, j, H, Hʳ, μ, Hᶜᵃ, A / Azᶜᶜᶜ(i, j, k, grid))
 end
