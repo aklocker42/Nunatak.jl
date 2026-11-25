@@ -100,6 +100,6 @@ their displacement is measured from 750 km once the front crosses them. Exp2, me
 
 The grounded area stays at 921 × 10³ km² and the mass above flotation changes by less than 0.1 %.
 
-In Exp4 the Halbrane fronts retreat 233 km by 481 a against the prescribed 239 km at 500 a. The Caprona fronts stop
-at 189 km. After 500 a the front advances freely and is back at 750 km on the Halbrane profiles at 860 a, held there
+In Exp4 the Halbrane fronts retreat 233 km by 481 a against the prescribed 239 km at 500 a. The Caprona fronts
+retreat over floating ice but lag the prescribed motion by 15 to 20 %, reaching 189 km at 500 a. After 500 a the front advances freely and is back at 750 km on the Halbrane profiles at 860 a, held there
 by the maximum extent. The grounded area falls from 937 to 892 × 10³ km² at 500 a and recovers to 918 × 10³ km².
