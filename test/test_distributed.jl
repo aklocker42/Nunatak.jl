@@ -4,6 +4,7 @@ MPI.Init()
 using Test
 using Oceananigans
 using Oceananigans.DistributedComputations
+using Oceananigans.DistributedComputations: NCCLDistributed
 using Nunatak
 
 # Run with `mpiexec -n 4`; TEST_ARCHITECTURE=GPU puts one GPU on each rank.
@@ -11,6 +12,9 @@ using Nunatak
 # The ice crosses rank boundaries: a wavy front at 32–48 km and, on the grounded slope, a grounding line near 3 km.
 
 child_architecture = get(ENV, "TEST_ARCHITECTURE", "CPU") == "GPU" ? GPU() : CPU()
+
+# Loading NCCL before this file also tests NCCLDistributed.
+distributed_architectures = isnothing(Base.get_extension(Oceananigans, :OceananigansNCCLExt)) ? (Distributed,) : (Distributed, NCCLDistributed)
 
 Nx, Ny = 32, 16
 L = 64e3
@@ -63,8 +67,9 @@ cases = ((name = "grounded slope", serial = (; bed = grounded_bed), distributed 
          (name = "multigrid", serial = (; bed = floating_bed, preconditioner = multigrid),
                               distributed = (; bed = floating_bed, preconditioner = multigrid)))
 
-@testset "Distributed matches serial on $child_architecture: $(case.name), $(summary(partition))" for partition in (Partition(2, 2), Partition(4, 1)), case in cases
-    arch = Distributed(child_architecture; partition)
+@testset "$distributed matches serial on $child_architecture: $(case.name), $(summary(partition))" for distributed in distributed_architectures,
+                                                                                                      partition in (Partition(2, 2), Partition(4, 1)), case in cases
+    arch = distributed(child_architecture; partition)
     serial_model = build_sheet(child_architecture; case.serial...)
     distributed_model = build_sheet(arch; case.distributed...)
     for step in 0:Nsteps
@@ -81,9 +86,10 @@ global_sizes(levels::Tuple{}) = ()
 global_sizes(levels::Tuple{<:Nunatak.Agglomeration}) = global_sizes(first(levels).levels)
 global_sizes(levels::Tuple) = (size(reconstruct_global_grid(first(levels).grid)), global_sizes(Base.tail(levels))...)
 
-@testset "Distributed multigrid levels match serial: $(summary(partition))" for partition in (Partition(2, 2), Partition(4, 1))
+@testset "$distributed multigrid levels match serial: $(summary(partition))" for distributed in distributed_architectures,
+                                                                                    partition in (Partition(2, 2), Partition(4, 1))
     grid(arch) = RectilinearGrid(arch; size = (Nx, Ny), halo = (4, 4), x = (0, L), y = (0, Ny * L / Nx), topology = (Bounded, Bounded, Flat))
     serial = StressBalanceMultigridPreconditioner(grid(child_architecture))
-    distributed = StressBalanceMultigridPreconditioner(grid(Distributed(child_architecture; partition)))
-    @test global_sizes(distributed.levels) == global_sizes(serial.levels)
+    distributed_preconditioner = StressBalanceMultigridPreconditioner(grid(distributed(child_architecture; partition)))
+    @test global_sizes(distributed_preconditioner.levels) == global_sizes(serial.levels)
 end
