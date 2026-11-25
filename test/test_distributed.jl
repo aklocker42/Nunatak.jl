@@ -4,7 +4,7 @@ MPI.Init()
 using Test
 using Oceananigans
 using Oceananigans.DistributedComputations
-using Oceananigans.DistributedComputations: NCCLDistributed
+using Oceananigans.DistributedComputations: NCCLDistributed, ranks
 using Nunatak
 
 # Run with `mpiexec -n 4`; TEST_ARCHITECTURE=GPU puts one GPU on each rank.
@@ -67,7 +67,7 @@ cases = ((name = "grounded slope", serial = (; bed = grounded_bed), distributed 
          (name = "multigrid", serial = (; bed = floating_bed, preconditioner = multigrid),
                               distributed = (; bed = floating_bed, preconditioner = multigrid)))
 
-@testset "$distributed matches serial on $child_architecture: $(case.name), $(summary(partition))" for distributed in distributed_architectures,
+@testset "$distributed matches serial on $child_architecture: $(case.name), $(join(ranks(partition), "×")) ranks" for distributed in distributed_architectures,
                                                                                                       partition in (Partition(2, 2), Partition(4, 1)), case in cases
     arch = distributed(child_architecture; partition)
     serial_model = build_sheet(child_architecture; case.serial...)
@@ -86,7 +86,7 @@ global_sizes(levels::Tuple{}) = ()
 global_sizes(levels::Tuple{<:Nunatak.Agglomeration}) = global_sizes(first(levels).levels)
 global_sizes(levels::Tuple) = (size(reconstruct_global_grid(first(levels).grid)), global_sizes(Base.tail(levels))...)
 
-@testset "$distributed multigrid levels match serial: $(summary(partition))" for distributed in distributed_architectures,
+@testset "$distributed multigrid levels match serial: $(join(ranks(partition), "×")) ranks" for distributed in distributed_architectures,
                                                                                     partition in (Partition(2, 2), Partition(4, 1))
     grid(arch) = RectilinearGrid(arch; size = (Nx, Ny), halo = (4, 4), x = (0, L), y = (0, Ny * L / Nx), topology = (Bounded, Bounded, Flat))
     serial = StressBalanceMultigridPreconditioner(grid(child_architecture))
