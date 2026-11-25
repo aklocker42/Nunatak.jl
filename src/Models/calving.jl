@@ -200,19 +200,22 @@ end
     end
     B = 2η̄ * ε̇ₑ²^((n - 1) / 2n)
     σ̃ = √3 * B * ε̃² * (ε̃² + ε̇₀^2)^((1 - 2n) / 2n)
-    ū = ℑxᶜᵃᵃ(i, j, k, grid, interior_u, u, μ)
-    v̄ = ℑyᵃᶜᵃ(i, j, k, grid, interior_v, v, μ)
-    speed = sqrt(ū^2 + v̄^2 + (ε̇₀ * Δxᶜᶜᶜ(i, j, k, grid))^2)
-    return speed * σ̃ / σᵐᵃˣ
+    return front_flow_speed(i, j, k, grid, u, v, μ, ε̇₀) * σ̃ / σᵐᵃˣ
+end
+
+# The larger face speed along each axis: a cell that filled after the velocity solve has no velocity on its
+# outer face, and the mean of its faces would halve its speed.
+@inline function front_flow_speed(i, j, k, grid, u, v, μ, ε̇₀)
+    ũ = max(abs(interior_u(i, j, k, grid, u, μ)), abs(interior_u(i+1, j, k, grid, u, μ)))
+    ṽ = max(abs(interior_v(i, j, k, grid, v, μ)), abs(interior_v(i, j+1, k, grid, v, μ)))
+    return sqrt(ũ^2 + ṽ^2 + (ε̇₀ * Δxᶜᶜᶜ(i, j, k, grid))^2)
 end
 
 @inline front_velocity(w::Number, t) = w
 @inline front_velocity(w, t) = w(t)
 
 @inline function calving_rate(i, j, k, grid, law::FrontVelocityCalving, μ, u, v, η̄H, H, φ, walls, n, ε̇₀, t)
-    ū = ℑxᶜᵃᵃ(i, j, k, grid, interior_u, u, μ)
-    v̄ = ℑyᵃᶜᵃ(i, j, k, grid, interior_v, v, μ)
-    speed = sqrt(ū^2 + v̄^2 + (ε̇₀ * Δxᶜᶜᶜ(i, j, k, grid))^2)
+    speed = front_flow_speed(i, j, k, grid, u, v, μ, ε̇₀)
     c = max(speed - front_velocity(law.front_velocity, t), zero(grid))
     return @inbounds (1 - φ[i, j, k]) * c
 end

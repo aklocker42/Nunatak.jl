@@ -13,9 +13,14 @@ julia --project=. -e 'include("schoof_flowline.jl"); schoof_flowline(start = :re
 julia --project=. kleiner2015_a.jl
 julia --project=. kleiner2015_b.jl
 julia --project=. -e 'include("multigrid_scaling.jl"); multigrid_scaling()'
+julia --project=. -e 'include("calvingmip.jl"); foreach(calvingmip, 1:4); calvingmip_netcdf(2); calvingmip_netcdf(4)'
 ```
 
 `plot_benchmarks.jl` turns the CSV output into the figures on the documentation's validation pages.
+
+`calvingmip.jl` restarts Exp2 and Exp4 from the latest Exp1 and Exp3 checkpoints in the working directory, so run the
+experiments in order. `calvingmip_netcdf` writes the CalvingMIP results file, `plot_calvingmip` its figure, and
+`calvingmip_summary` the front displacement against the prescribed one.
 
 `halfar.jl` and `eismint2_a.jl` take a `stress_balance` keyword (default `ShallowIce()`); pass `DepthIntegrated(shear = DIVAShear())`
 to run the same case with DIVA and a no-slip bed. Each run writes `<output>_timeseries.csv` and the final
@@ -31,6 +36,7 @@ fields as CSV files.
 | `schoof_flowline.jl` | Steady grounding line of a marine flowline approached from upstream and downstream, uniform or stretched Δx | Schoof (2007, J. Geophys. Res. 112) |
 | `kleiner2015_a.jl` | Slab under a surface temperature cycle, basal melt and refreezing | Kleiner et al. (2015, The Cryosphere 9), experiment A |
 | `kleiner2015_b.jl` | Steady polythermal slab, cold-temperate transition surface | Kleiner et al. (2015, The Cryosphere 9), experiment B |
+| `calvingmip.jl` | Circular and Thule domains: spin-ups behind a held front (Exp1, Exp3), prescribed front motion (Exp2, Exp4) | CalvingMIP, https://github.com/JRowanJordan/CalvingMIP/wiki |
 | `multigrid_scaling.jl` | CG iterations and time of one SSA solve with the diagonal and multigrid preconditioners, 8 km to 0.5 km | MISMIP+ bed, Asay-Davis et al. (2016, Geosci. Model Dev. 9) |
 
 EISMINT II experiment A after 200 kyr, intercomparison mean and range across ten models (Payne et al., 2000, Table 4):

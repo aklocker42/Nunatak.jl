@@ -35,7 +35,7 @@ The keywords of [`IceSheetModel`](@ref) choose each component:
 | `rheology` | `GlenFlowLaw` with a constant, spatially varying or `ArrheniusRateFactor` rate factor | `nothing` (velocities stay fixed) |
 | `friction` | `WeertmanFriction`, `RegularizedCoulombFriction`, or `nothing` (free slip) | `nothing` |
 | `grounding` | `SubgridGroundedFraction()`, or `nothing` (all ice grounded) | `nothing` |
-| `masking` | `SmoothIceMask(grid)`, `PartialCellFront(grid; calving)` with `ThicknessThresholdCalving`, `EigenCalving`, `VonMisesCalving` or `nothing` | `SmoothIceMask(grid)` |
+| `masking` | `SmoothIceMask(grid)`, `PartialCellFront(grid; calving)` with `ThicknessThresholdCalving`, `EigenCalving`, `VonMisesCalving`, `FrontVelocityCalving`, `MaximumExtentCalving` or `nothing` | `SmoothIceMask(grid)` |
 | `thermodynamics` | `EnthalpyThermodynamics(grid; ...)`, or `nothing` (isothermal) | `nothing` |
 | `velocity_solver` | `StressBalanceSolver`, `ShallowIceSolver`, or `nothing` | chosen from the stress balance |
 | `advection` | any Oceananigans advection scheme | bounded fifth-order WENO; `Centered(order = 2)` with `ShallowIce()` |

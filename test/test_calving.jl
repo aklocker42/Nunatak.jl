@@ -109,15 +109,15 @@ cpu_field(f) = Array(interior(f, :, :, 1))
         B = 2η̄ * (a^2 + ε̇₀^2)^((n - 1) / 2n)
         σ̃ = √3 * B * ε̃² * (ε̃² + ε̇₀^2)^((1 - 2n) / 2n)
         speed(ū) = sqrt(ū^2 + (ε̇₀ * Δx)^2)
-        f = speed((Nfull - 1 / 2) * a * Δx) * σ̃ / σᵐᵃˣ * Δt / Δx
+        f = speed(Nfull * a * Δx) * σ̃ / σᵐᵃˣ * Δt / Δx
         V₀ = ice_volume(model)
         advance_front!(model.masking, model, Δt)
         @test 0 < f < 1
         @test all(cpu_field(model.geometry.H)[Nfull, :] .≈ H₀ * (1 - f))
         @test ice_volume(model) + calved_volume(model) ≈ V₀
 
-        # The partial cell takes its rate from its full upstream neighbor.
-        f′ = speed((Nfull - 3 / 2) * a * Δx) * σ̃ / σᵐᵃˣ * Δt / Δx
+        # The partial cell takes its rate from its full upstream neighbor, at that neighbor's faster face.
+        f′ = speed((Nfull - 1) * a * Δx) * σ̃ / σᵐᵃˣ * Δt / Δx
         advance_front!(model.masking, model, Δt)
         @test all(cpu_field(model.geometry.H)[Nfull, :] .≈ H₀ * (1 - f - f′))
         @test ice_volume(model) + calved_volume(model) ≈ V₀
