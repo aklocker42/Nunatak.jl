@@ -55,14 +55,13 @@ end
 
 calving_front(grid) = PartialCellFront(grid; calving = VonMisesCalving(grid; stress_threshold = 1e5))
 
-# The serial `minimum_coarse_size` gives the same multigrid levels as the 2×2 split; a 4×1 split cannot match them.
-multigrid(minimum_coarse_size) = grid -> StressBalanceMultigridPreconditioner(grid; smoother = LineJacobi(), minimum_coarse_size)
+multigrid(grid) = StressBalanceMultigridPreconditioner(grid; smoother = LineJacobi())
 
 cases = ((name = "grounded slope", serial = (; bed = grounded_bed), distributed = (; bed = grounded_bed)),
          (name = "von Mises calving", serial = (; bed = grounded_bed, masking = calving_front),
                                       distributed = (; bed = grounded_bed, masking = calving_front)),
-         (name = "multigrid", serial = (; bed = floating_bed, preconditioner = multigrid(8)),
-                              distributed = (; bed = floating_bed, preconditioner = multigrid(2))))
+         (name = "multigrid", serial = (; bed = floating_bed, preconditioner = multigrid),
+                              distributed = (; bed = floating_bed, preconditioner = multigrid)))
 
 @testset "Distributed matches serial on $child_architecture: $(case.name), $(summary(partition))" for partition in (Partition(2, 2), Partition(4, 1)), case in cases
     arch = Distributed(child_architecture; partition)
@@ -75,4 +74,16 @@ cases = ((name = "grounded slope", serial = (; bed = grounded_bed), distributed 
         end
         @test relative_error(snapshot(serial_model), snapshot(distributed_model), arch) < 1e-10
     end
+end
+
+# Below the last level a rank can halve as the global grid would be, the levels are gathered and coarsened on one grid.
+global_sizes(levels::Tuple{}) = ()
+global_sizes(levels::Tuple{<:Nunatak.Agglomeration}) = global_sizes(first(levels).levels)
+global_sizes(levels::Tuple) = (size(reconstruct_global_grid(first(levels).grid)), global_sizes(Base.tail(levels))...)
+
+@testset "Distributed multigrid levels match serial: $(summary(partition))" for partition in (Partition(2, 2), Partition(4, 1))
+    grid(arch) = RectilinearGrid(arch; size = (Nx, Ny), halo = (4, 4), x = (0, L), y = (0, Ny * L / Nx), topology = (Bounded, Bounded, Flat))
+    serial = StressBalanceMultigridPreconditioner(grid(child_architecture))
+    distributed = StressBalanceMultigridPreconditioner(grid(Distributed(child_architecture; partition)))
+    @test global_sizes(distributed.levels) == global_sizes(serial.levels)
 end

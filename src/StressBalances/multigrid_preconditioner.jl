@@ -36,7 +36,9 @@ $(TYPEDSIGNATURES)
 Build a `StressBalanceMultigridPreconditioner` on `grid`. A direction is halved while its size is even and the coarse
 grid keeps at least `minimum_coarse_size` cells, and no fewer cells than halo points, in that direction; coarsening
 stops when neither direction can be halved. On a distributed grid every rank halves its own part, so each coarse
-grid is partitioned like `grid`; partitions must be equal. `smoother` is `PointJacobi()` or `LineJacobi()`; use `LineJacobi()` on
+grid is partitioned like `grid`; partitions must be equal. Where a rank's part can no longer be halved as the global
+grid would be, the level is gathered onto every rank and coarsened further as on one rank (see `Agglomeration`), so the
+levels and the V-cycle are those of the serial preconditioner. `smoother` is `PointJacobi()` or `LineJacobi()`; use `LineJacobi()` on
 grids much longer in `x` than in `y`, such as flowlines.
 
 ```jldoctest
@@ -94,10 +96,54 @@ function coarse_levels(grid, minimum_coarse_size)
     Nx, Ny, _ = size(grid)
     Hx, Hy, _ = halo_size(grid)
     arch = architecture(grid)
-    return coarse_levels(grid, coarsening(Nx, Hx, minimum_coarse_size, arch), coarsening(Ny, Hy, minimum_coarse_size, arch), minimum_coarse_size)
+    cx, cy = coarsening(Nx, Hx, minimum_coarse_size, arch), coarsening(Ny, Hy, minimum_coarse_size, arch)
+    Nxᵍ, Nyᵍ, _ = size(reconstruct_global_grid(grid))
+    serial_coarsening = (coarsening(Nxᵍ, Hx, minimum_coarse_size, CPU()), coarsening(Nyᵍ, Hy, minimum_coarse_size, CPU()))
+    (cx, cy) == serial_coarsening || return agglomeration(arch, grid, minimum_coarse_size)
+    return coarse_levels(grid, cx, cy, minimum_coarse_size)
 end
 
-coarse_levels(grid, ::Unchanged, ::Unchanged, minimum_coarse_size) = ()
+coarse_levels(grid, ::Unchanged, ::Unchanged, minimum_coarse_size) = agglomeration(architecture(grid), grid, minimum_coarse_size)
+
+agglomeration(arch, grid, minimum_coarse_size) = ()
+agglomeration(::Distributed, grid, minimum_coarse_size) = (Agglomeration(grid, minimum_coarse_size),)
+
+"""
+$(TYPEDEF)
+
+Last level of a distributed `StressBalanceMultigridPreconditioner`: every rank gathers the level onto a serial copy of
+the global grid and continues the V-cycle there with serial `levels`, then takes back its own part. The coarse
+problem is solved redundantly on every rank, so only the gathers communicate.
+
+$(TYPEDFIELDS)
+"""
+struct Agglomeration{G, C, V, S, L}
+    "serial copy of the global grid of the level"
+    grid :: G
+    "`η̄H`, `η̄Hᶠᶠ`, `βᵘ` and `βᵛ` on `grid`"
+    coefficients :: C
+    "correction on `grid`"
+    x :: V
+    "right-hand side on `grid`"
+    b :: V
+    "residual workspace on `grid`"
+    q :: V
+    "line-solve workspace on `grid`"
+    scratch :: S
+    "serial coarse levels below `grid`"
+    levels :: L
+end
+
+function Agglomeration(grid, minimum_coarse_size)
+    global_grid = reconstruct_global_grid(grid)
+    coefficients = (η̄H = Field{Center, Center, Nothing}(global_grid),
+                    η̄Hᶠᶠ = Field{Face, Face, Nothing}(global_grid),
+                    βᵘ = Field{Face, Center, Nothing}(global_grid),
+                    βᵛ = Field{Center, Face, Nothing}(global_grid))
+    return Agglomeration(global_grid, coefficients, VelocityVector(global_grid), VelocityVector(global_grid),
+                         VelocityVector(global_grid), Field{Center, Center, Nothing}(global_grid),
+                         coarse_levels(global_grid, minimum_coarse_size))
+end
 
 function coarse_levels(grid, cx, cy, minimum_coarse_size)
     coarse = coarsened_grid(grid, cx, cy)
@@ -150,10 +196,64 @@ function coarsen_coefficients!(levels::Tuple, η̄H, βᵘ, βᵛ)
     return coarsen_coefficients!(Base.tail(levels), level.η̄H, level.βᵘ, level.βᵛ)
 end
 
+function coarsen_coefficients!(levels::Tuple{<:Agglomeration}, η̄H, βᵘ, βᵛ)
+    agglomeration = first(levels)
+    coefficients = agglomeration.coefficients
+    grid = agglomeration.grid
+    foreach(gather!, (coefficients.η̄H, coefficients.βᵘ, coefficients.βᵛ), (η̄H, βᵘ, βᵛ))
+    launch!(architecture(grid), grid, size(coefficients.η̄Hᶠᶠ), _interpolate_to_corners!, coefficients.η̄Hᶠᶠ, coefficients.η̄H, grid)
+    fill_halo_regions!(coefficients.η̄Hᶠᶠ)
+    return coarsen_coefficients!(agglomeration.levels, coefficients.η̄H, coefficients.βᵘ, coefficients.βᵛ)
+end
+
+# Every rank adds the cells and faces it owns to a zeroed global field, so the sum over ranks assembles it.
+function gather!(global_field, local_field)
+    grid = local_field.grid
+    arch = architecture(grid)
+    fill!(global_field, 0)
+    launch!(arch, grid, size(local_field), _place_window!, global_field, local_field, window_offsets(grid)...)
+    sync_device!(arch)
+    all_reduce!(+, parent(global_field), arch)
+    fill_halo_regions!(global_field)
+    return nothing
+end
+
+function scatter!(local_field, global_field)
+    grid = local_field.grid
+    launch!(architecture(grid), grid, size(local_field), _take_window!, local_field, global_field, window_offsets(grid)...)
+    return nothing
+end
+
+# Equal partitions, so a rank's first cell follows `local_index - 1` parts of its size.
+function window_offsets(grid)
+    ri, rj, _ = architecture(grid).local_index
+    Nx, Ny, _ = size(grid)
+    return (ri - 1) * Nx, (rj - 1) * Ny
+end
+
+@kernel function _place_window!(global_field, local_field, I₀, J₀)
+    i, j, k = @index(Global, NTuple)
+    @inbounds global_field[I₀ + i, J₀ + j, k] = local_field[i, j, k]
+end
+
+@kernel function _take_window!(local_field, global_field, I₀, J₀)
+    i, j, k = @index(Global, NTuple)
+    @inbounds local_field[i, j, k] = global_field[I₀ + i, J₀ + j, k]
+end
+
 # `x ≈ A⁻¹ b` from a zero initial guess; `q` and `t` are workspace on the same grid.
 function v_cycle!(x, b, q, t, coefficients, ::Tuple{}, walls, P)
     fill!(x, 0)
     smooth!(x, b, q, t, coefficients, walls, P.smoother, P.coarsest_sweeps)
+    return nothing
+end
+
+function v_cycle!(x, b, q, t, coefficients, levels::Tuple{<:Agglomeration}, walls, P)
+    agglomeration = first(levels)
+    foreach(gather!, (agglomeration.b.u, agglomeration.b.v), (b.u, b.v))
+    v_cycle!(agglomeration.x, agglomeration.b, agglomeration.q, agglomeration.scratch, agglomeration.coefficients,
+             agglomeration.levels, walls, P)
+    foreach(scatter!, (x.u, x.v), (agglomeration.x.u, agglomeration.x.v))
     return nothing
 end
 
