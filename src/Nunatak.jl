@@ -27,15 +27,16 @@ using Oceananigans.Advection: div_Uc, UpwindBiased, BoundsPreservingWENO, materi
                              _advective_tracer_flux_x, _advective_tracer_flux_y, _biased_interpolate_xᶠᵃᵃ, _biased_interpolate_yᵃᶠᵃ,
                              LeftBias, RightBias, upwind_biased_product, rescaled_reconstruction
 using Oceananigans.Architectures: on_architecture, device, convert_to_device
+using Oceananigans.DistributedComputations: Distributed, all_reduce, all_reduce!, reconstruct_global_grid
 using Oceananigans.Fields: interior, ZeroField
-using Oceananigans.Grids: AbstractGrid, RectilinearGrid, Flat, Bounded, Periodic, topology, xnode, ynode, halo_size, znode,
+using Oceananigans.Grids: AbstractGrid, RectilinearGrid, Flat, Bounded, Periodic, TwoSided, Closed, topology, xnode, ynode, halo_size, znode,
                           cpu_face_constructor_x, cpu_face_constructor_y, pop_flat_elements, peripheral_node, inactive_cell
 using Oceananigans.Solvers: BatchedTridiagonalSolver
 using Oceananigans.Operators: δxᶠᶜᶜ, δyᶠᶜᶜ, δxᶜᶠᶜ, δyᶜᶠᶜ, ∂xᶜᶜᶜ, ∂yᶜᶜᶜ, ∂xᶠᶠᶜ, ∂yᶠᶠᶜ, ∂xᶠᶜᶜ, ∂yᶜᶠᶜ,
                               Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δxᶠᶜᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ, Δyᶜᶠᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Az, Azᶠᶜᶜ, Azᶜᶠᶜ, Azᶜᶜᶜ, Axᶠᶜᶜ, Ayᶜᶠᶜ, Vᶜᶜᶜ, δxᶜᵃᵃ, δyᵃᶜᵃ,
                               ℑxᶠᵃᵃ, ℑyᵃᶠᵃ, ℑxᶜᵃᵃ, ℑyᵃᶜᵃ, ℑxyᶜᶜᵃ, ℑxyᶠᶠᵃ, ℑxyᶠᶜᵃ, ℑxyᶜᶠᵃ
 using Oceananigans.TimeSteppers: TimeStepper, Clock, SplitRungeKuttaTimeStepper
-using Oceananigans.Utils: prettysummary
+using Oceananigans.Utils: prettysummary, sync_device!
 
 import Oceananigans.Advection: cell_advection_timescale
 import Oceananigans.Diagnostics: cell_diffusion_timescale

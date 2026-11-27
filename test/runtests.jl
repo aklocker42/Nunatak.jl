@@ -5,6 +5,7 @@ using Oceananigans.Architectures: on_architecture
 using Oceananigans.BoundaryConditions: fill_halo_regions!
 using Nunatak
 using Documenter
+using MPI: mpiexec
 
 const arch = get(ENV, "TEST_ARCHITECTURE", "CPU") == "GPU" ? GPU() : CPU()
 @info "Testing on" arch
@@ -34,6 +35,18 @@ include("toy_problems.jl")
 
     if arch isa CPU
         include("test_enzyme.jl")
+
+        @testset "Distributed" begin
+            test_file = joinpath(@__DIR__, "test_distributed.jl")
+            command = `$(mpiexec()) -n 4 $(Base.julia_cmd()) --project=$(Base.active_project()) $test_file`
+            @test success(pipeline(command; stdout, stderr))
+        end
+
+        @testset "Distributed Enzyme" begin
+            test_file = joinpath(@__DIR__, "test_distributed_enzyme.jl")
+            command = `$(mpiexec()) -n 4 $(Base.julia_cmd()) --project=$(Base.active_project()) $test_file`
+            @test success(pipeline(command; stdout, stderr))
+        end
 
         @testset "Doctests" begin
             doctest(Nunatak; manual = false)
