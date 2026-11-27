@@ -96,7 +96,9 @@ fill_velocity_halos!(model::ISM) = fill_halo_regions!((model.velocities.u, model
 maybe_update_velocities!(model, ::Nothing) = nothing
 
 function maybe_update_velocities!(model, solver)
-    solver.schedule(model) && update_velocities!(model, solver)
+    @trace track_numbers=false if solver.schedule(model)
+        update_velocities!(model, solver)
+    end
     return nothing
 end
 

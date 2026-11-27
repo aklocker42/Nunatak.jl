@@ -34,6 +34,7 @@ include("toy_problems.jl")
 
     if arch isa CPU
         include("test_enzyme.jl")
+        include("test_reactant.jl")
 
         @testset "Doctests" begin
             doctest(Nunatak; manual = false)
