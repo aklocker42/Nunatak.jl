@@ -8,7 +8,7 @@ export GlenFlowLaw, ArrheniusRateFactor
 export EnthalpyThermodynamics, TillEffectivePressure
 export WeertmanFriction, RegularizedCoulombFriction
 export SubgridGroundedFraction, IceSheetConstants, SmoothIceMask, PartialCellFront
-export ThicknessThresholdCalving, EigenCalving, VonMisesCalving
+export ThicknessThresholdCalving, EigenCalving, VonMisesCalving, FrontVelocityCalving, MaximumExtentCalving
 export StressBalanceSolver
 export VelocityVector, VelocityConjugateGradientSolver, JacobiPreconditioner, StressBalanceDiagonalPreconditioner,
        StressBalanceMultigridPreconditioner, PointJacobi, LineJacobi
