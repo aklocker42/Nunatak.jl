@@ -19,8 +19,8 @@ A `calving` law (`ThicknessThresholdCalving`, `EigenCalving`, `VonMisesCalving`,
 advance. A front cell loses the fraction `c Δt ℓ / A` of its area, with `c` the calving rate, `ℓ` the length of
 its ocean faces projected across the flow and `A` its area; a full cell that loses ice becomes partial. Partial
 cells take `c` from their full neighbors. Under a rate law, the retreat an emptied cell could not take passes,
-shared equally, to its neighbors with ice; what they cannot take is lost, so retreat is capped at about one cell
-per step.
+shared equally, to its neighbors with ice, and what they cannot take passes on in turn, up to `passes` times;
+retreat left after the last pass is lost.
 The removed thickness accumulates in `calved_thickness`.
 
 $(TYPEDFIELDS)
@@ -28,9 +28,11 @@ $(TYPEDFIELDS)
 struct PartialCellFront{F, C}
     "volume `O` an overfilled front cell passes to each empty neighbor (m³), and scratch for the retreat fraction"
     overflow :: F
+    "retreat area (m²) that cells emptied by the retreat passed to them could not take"
+    residual :: F
     "thickness removed by calving, accumulated over the run (m)"
     calved_thickness :: F
-    "maximum number of overflow passes per time step"
+    "maximum number of overflow and retreat passes per time step"
     passes :: Int
     "calving law, or `nothing` for no calving"
     calving :: C
@@ -56,8 +58,9 @@ PartialCellFront(passes = 4, calving = ThicknessThresholdCalving(thickness = 200
 function PartialCellFront(grid::AbstractGrid; passes = 4, calving = nothing)
     passes ≥ 0 || throw(ArgumentError("passes must be non-negative, got $passes"))
     overflow = Field{Center, Center, Nothing}(grid)
+    residual = Field{Center, Center, Nothing}(grid)
     calved_thickness = Field{Center, Center, Nothing}(grid)
-    return PartialCellFront(overflow, calved_thickness, passes, calving)
+    return PartialCellFront(overflow, residual, calved_thickness, passes, calving)
 end
 
 calving_summary(::Nothing) = ""
@@ -314,11 +317,15 @@ function calve_front!(front, law, model, Δt)
     launch!(arch, grid, :xy, _compute_retreat_fraction!, f, grid, law, Δt, ice_mask, H, front_thickness, model.bed,
             u, v, model.auxiliary.η̄H, H, φ, walls, n, ε̇₀, model.clock.time)
     launch!(arch, grid, :xy, _retreat_front_cells!, H, front_thickness, ice_mask, front.calved_thickness, f, grid, law)
-    fill_halo_regions!(f)
-    fill_halo_regions!(H, model.clock, fields(model))
-    launch!(arch, grid, :xy, _share_residual_retreat!, f, grid, H)
-    fill_halo_regions!(f)
-    launch!(arch, grid, :xy, _receive_residual_retreat!, H, front_thickness, ice_mask, front.calved_thickness, f, grid)
+    r = front.residual
+    for _ in 1:max(front.passes, 1)
+        fill_halo_regions!(f)
+        fill_halo_regions!(H, model.clock, fields(model))
+        launch!(arch, grid, :xy, _share_residual_retreat!, f, grid, H)
+        fill_halo_regions!(f)
+        launch!(arch, grid, :xy, _receive_residual_retreat!, H, front_thickness, ice_mask, front.calved_thickness, r, f, grid)
+        parent(f) .= parent(r)
+    end
     fill_halo_regions!((ice_mask, front_thickness))
     fill_halo_regions!(H, model.clock, fields(model))
     return nothing
@@ -393,11 +400,12 @@ end
 
 @inline residual_area(i, j, k, grid, f) = ifelse(inactive_cell(i, j, k, grid), zero(grid), @inbounds(f[i, j, k]))
 
-# Retreat stops here: what the receiving cell cannot take is not passed on.
-@kernel function _receive_residual_retreat!(H, Hʳ, μ, Hᶜᵃ, f, grid)
+# `r` becomes the area of retreat the receiving cell cannot take, for the next pass.
+@kernel function _receive_residual_retreat!(H, Hʳ, μ, Hᶜᵃ, r, f, grid)
     i, j = @index(Global, NTuple)
     k = 1
     A = residual_area(i-1, j, k, grid, f) + residual_area(i+1, j, k, grid, f) +
         residual_area(i, j-1, k, grid, f) + residual_area(i, j+1, k, grid, f)
-    remove_front_fraction!(i, j, H, Hʳ, μ, Hᶜᵃ, A / Azᶜᶜᶜ(i, j, k, grid))
+    g = remove_front_fraction!(i, j, H, Hʳ, μ, Hᶜᵃ, A / Azᶜᶜᶜ(i, j, k, grid))
+    @inbounds r[i, j, k] = g * Azᶜᶜᶜ(i, j, k, grid)
 end

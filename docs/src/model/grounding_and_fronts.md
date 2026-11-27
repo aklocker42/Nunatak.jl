@@ -63,8 +63,8 @@ faces projected across the flow, with ``\ell_x`` and ``\ell_y`` the lengths of i
 staircase of cells holds still. The cell keeps its ice thickness, so a full cell that calves becomes partial. A
 partial cell has no stress balance of its own and takes ``c`` from its full neighbours. When a partial cell
 empties, the rate laws pass the retreat it could not take, shared equally, to its neighbours that hold ice; what
-they cannot take is lost, so the retreat is capped at about one cell per step. The removed thickness accumulates
-in `calved_thickness`, which closes the volume budget.
+they cannot take passes on in turn, up to `passes` times, and only what is left after the last pass is lost. The
+removed thickness accumulates in `calved_thickness`, which closes the volume budget.
 
 - **[`ThicknessThresholdCalving`](@ref)** removes, in one step, a front cell whose ice is thinner than `thickness`.
 - **[`EigenCalving`](@ref)** [Levermann2012](@citep) retreats at ``c = K \max(\dot\varepsilon_1, 0) \max(\dot\varepsilon_2, 0)``,
