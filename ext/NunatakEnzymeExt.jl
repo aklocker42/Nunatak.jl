@@ -8,8 +8,14 @@ using Nunatak: GlenFlowLaw, ArrheniusRateFactor
 using Nunatak.Oceananigans: prognostic_state, restore_prognostic_state!, time_step!
 using Nunatak.Oceananigans: Field
 using Nunatak.Oceananigans.BoundaryConditions: fill_halo_regions!
+using Nunatak.Oceananigans.Grids: halo_size
+using Nunatak.Oceananigans.Utils: sync_device!
+using Nunatak.Oceananigans.BoundaryConditions: DistributedFillHalo, West, East, South, North, WestAndEast, SouthAndNorth
+using Nunatak.Oceananigans.DistributedComputations: MPI, OneDBuffer, TwoDBuffer, mpi_communicator,
+                                                    distributed_fill_halo_event!, fill_corners!, wait_for_messages!
 using Enzyme
 using Enzyme.EnzymeRules
+using Enzyme.EnzymeCore: Annotation
 
 import Nunatak: solve!, picard_solve!, checkpointed_gradient!
 
@@ -108,6 +114,108 @@ function accumulate_right_hand_side_adjoint!(b::Shadowed, λ)
     solved_cells(b̄.u) .+= solved_cells(λ.u)
     solved_cells(b̄.v) .+= solved_cells(λ.v)
     return nothing
+end
+
+#####
+##### Adjoint of the distributed halo exchange
+#####
+
+# A halo cell is a copy of a neighbor's interior cell, so the reverse pass sends the halo shadow back to that
+# neighbor, which adds it to the interior shadow. Enzyme cannot differentiate the MPI calls itself.
+
+EnzymeRules.inactive(::typeof(wait_for_messages!), args...) = nothing
+
+exchanged_sides(side) = ()
+exchanged_sides(::West) = (:west,)
+exchanged_sides(::East) = (:east,)
+exchanged_sides(::South) = (:south,)
+exchanged_sides(::North) = (:north,)
+exchanged_sides(::WestAndEast) = (:west, :east)
+exchanged_sides(::SouthAndNorth) = (:south, :north)
+
+const corners = (:southwest, :southeast, :northwest, :northeast)
+
+const opposite = (west = :east, east = :west, south = :north, north = :south,
+            southwest = :northeast, southeast = :northwest, northwest = :southeast, northeast = :southwest)
+
+const direction = (west = (-1, 0), east = (1, 0), south = (0, -1), north = (0, 1),
+             southwest = (-1, -1), southeast = (1, -1), northwest = (-1, 1), northeast = (1, 1))
+
+adjoint_tag(side) = 32000 + findfirst(==(side), keys(direction))
+
+# Halo and interior index ranges along one axis, the same ones the forward exchange copies between.
+along(::OneDBuffer, H, N) = Colon()
+along(buffer, H, N) = 1+H:N+H
+
+halo_and_interior(d, buffer, H, N) = d < 0 ? (1:H, 1+H:2H) :
+                                     d > 0 ? (1+N+H:N+2H, 1+N:N+H) :
+                                     (along(buffer, H, N), along(buffer, H, N))
+
+return_halo_shadows!(::Const, sides, neighbors, arch, grid, buffers) = nothing
+
+function return_halo_shadows!(c, sides, neighbors, arch, grid, buffers)
+    c̄ = parent(shadow(c))
+    Hx, Hy, _ = halo_size(grid)
+    Nx, Ny, _ = size(grid)
+    exchanged = filter(((side, rank),) -> !isnothing(rank) && !isnothing(getproperty(buffers, side)), collect(zip(sides, neighbors)))
+
+    communicator = mpi_communicator(arch.communicator)
+    regions = map(exchanged) do (side, rank)
+        buffer = getproperty(buffers, side)
+        dx, dy = direction[side]
+        haloˣ, interiorˣ = halo_and_interior(dx, buffer, Hx, Nx)
+        haloʸ, interiorʸ = halo_and_interior(dy, buffer, Hy, Ny)
+        halo = view(c̄, haloˣ, haloʸ, :)
+        buffer.recv .= halo
+        halo .= 0
+        return (side, rank, buffer, view(c̄, interiorˣ, interiorʸ, :))
+    end
+    # GPU buffers go through CUDA-aware MPI, also under NCCLDistributed, once packing has finished.
+    sync_device!(arch)
+    requests = MPI.Request[]
+    for (side, rank, buffer, _) in regions
+        push!(requests, MPI.Irecv!(buffer.send, communicator; source = rank, tag = adjoint_tag(opposite[side])))
+        push!(requests, MPI.Isend(buffer.recv, communicator; dest = rank, tag = adjoint_tag(side)))
+    end
+    MPI.Waitall(requests)
+
+    for (_, _, buffer, interior) in regions
+        interior .+= buffer.send
+    end
+
+    return nothing
+end
+
+function EnzymeRules.augmented_primal(config, func::Const{typeof(distributed_fill_halo_event!)}, ::Type{RT},
+                                      c, kernel!::Annotation{<:DistributedFillHalo}, bcs, loc, arch, grid, buffers, args;
+                                      kwargs...) where RT
+    distributed_fill_halo_event!(c.val, kernel!.val, bcs.val, loc.val, arch.val, grid.val, buffers.val, args.val; kwargs...)
+    return EnzymeRules.AugmentedReturn(nothing, nothing, nothing)
+end
+
+function EnzymeRules.reverse(config, func::Const{typeof(distributed_fill_halo_event!)}, ::Type{RT}, tape,
+                             c, kernel!::Annotation{<:DistributedFillHalo}, bcs, loc, arch, grid, buffers, args;
+                             async = false, only_local_halos = false, kwargs...) where RT
+    async && error("The adjoint of an asynchronous distributed halo fill is not implemented")
+    sides = exchanged_sides(kernel!.val.side)
+    neighbors = map(bc -> bc.condition.to, bcs.val)
+    only_local_halos || return_halo_shadows!(c, sides, neighbors, arch.val, grid.val, buffers.val)
+    return ntuple(_ -> nothing, 8)
+end
+
+function EnzymeRules.augmented_primal(config, func::Const{typeof(fill_corners!)}, ::Type{RT},
+                                      c, connectivity, arch, grid, buffers; kwargs...) where RT
+    fill_corners!(c.val, connectivity.val, arch.val, grid.val, buffers.val; kwargs...)
+    return EnzymeRules.AugmentedReturn(nothing, nothing, nothing)
+end
+
+function EnzymeRules.reverse(config, func::Const{typeof(fill_corners!)}, ::Type{RT}, tape,
+                             c, connectivity, arch, grid, buffers;
+                             async = false, only_local_halos = false, kwargs...) where RT
+    async && error("The adjoint of an asynchronous distributed halo fill is not implemented")
+    neighbors = map(side -> getproperty(connectivity.val, side), corners)
+    only_local_halos || return_halo_shadows!(c, corners, neighbors, arch.val, grid.val, buffers.val)
+    return ntuple(_ -> nothing, 5)
 end
 
 #####
