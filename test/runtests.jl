@@ -42,6 +42,12 @@ include("toy_problems.jl")
             @test success(pipeline(command; stdout, stderr))
         end
 
+        @testset "Distributed Enzyme" begin
+            test_file = joinpath(@__DIR__, "test_distributed_enzyme.jl")
+            command = `$(mpiexec()) -n 4 $(Base.julia_cmd()) --project=$(Base.active_project()) $test_file`
+            @test success(pipeline(command; stdout, stderr))
+        end
+
         @testset "Doctests" begin
             doctest(Nunatak; manual = false)
         end
