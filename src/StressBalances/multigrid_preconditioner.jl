@@ -38,7 +38,8 @@ grid keeps at least `minimum_coarse_size` cells, and no fewer cells than halo po
 stops when neither direction can be halved. On a distributed grid every rank halves its own part, so each coarse
 grid is partitioned like `grid`; partitions must be equal. Where a rank's part can no longer be halved as the global
 grid would be, the level is gathered onto every rank and coarsened further as on one rank (see `Agglomeration`), so the
-levels and the V-cycle are those of the serial preconditioner. `smoother` is `PointJacobi()` or `LineJacobi()`; use `LineJacobi()` on
+levels and the V-cycle are those of the serial preconditioner. A level of at most `agglomeration_size` cells in all is
+gathered too, since its halo exchanges cost more than solving it on every rank. `smoother` is `PointJacobi()` or `LineJacobi()`; use `LineJacobi()` on
 grids much longer in `x` than in `y`, such as flowlines.
 
 ```jldoctest
@@ -57,8 +58,9 @@ julia> map(level -> size(level.grid), StressBalanceMultigridPreconditioner(flowl
 ((32, 4, 1), (16, 4, 1), (8, 4, 1), (4, 4, 1))
 ```
 """
-function StressBalanceMultigridPreconditioner(grid; smoother = PointJacobi(), smoothing_sweeps = 2, coarsest_sweeps = 20, minimum_coarse_size = 2)
-    levels = coarse_levels(grid, minimum_coarse_size)
+function StressBalanceMultigridPreconditioner(grid; smoother = PointJacobi(), smoothing_sweeps = 2, coarsest_sweeps = 20, minimum_coarse_size = 2,
+                                             agglomeration_size = 2^16)
+    levels = coarse_levels(grid, minimum_coarse_size, agglomeration_size)
     isempty(levels) && @warn "$(size(grid)) grid cannot be halved; the multigrid preconditioner reduces to ℓ1-Jacobi sweeps"
     scratch = Field{Center, Center, Nothing}(grid)
     return StressBalanceMultigridPreconditioner(levels, VelocityVector(grid), scratch, smoother, smoothing_sweeps, coarsest_sweeps)
@@ -92,18 +94,23 @@ function coarsening(N, H, minimum_coarse_size, arch)
     return ifelse(all_reduce(min, Int(halvable), arch) == 1, Halved(), Unchanged())
 end
 
-function coarse_levels(grid, minimum_coarse_size)
+function coarse_levels(grid, minimum_coarse_size, agglomeration_size)
     Nx, Ny, _ = size(grid)
     Hx, Hy, _ = halo_size(grid)
     arch = architecture(grid)
     cx, cy = coarsening(Nx, Hx, minimum_coarse_size, arch), coarsening(Ny, Hy, minimum_coarse_size, arch)
     Nxᵍ, Nyᵍ, _ = size(reconstruct_global_grid(grid))
     serial_coarsening = (coarsening(Nxᵍ, Hx, minimum_coarse_size, CPU()), coarsening(Nyᵍ, Hy, minimum_coarse_size, CPU()))
-    (cx, cy) == serial_coarsening || return agglomeration(arch, grid, minimum_coarse_size)
-    return coarse_levels(grid, cx, cy, minimum_coarse_size)
+    gathered = ((cx, cy) != serial_coarsening) | small_enough_to_gather(arch, Nxᵍ * Nyᵍ, agglomeration_size)
+    gathered && return agglomeration(arch, grid, minimum_coarse_size)
+    return coarse_levels(grid, cx, cy, minimum_coarse_size, agglomeration_size)
 end
 
-coarse_levels(grid, ::Unchanged, ::Unchanged, minimum_coarse_size) = agglomeration(architecture(grid), grid, minimum_coarse_size)
+coarse_levels(grid, ::Unchanged, ::Unchanged, minimum_coarse_size, agglomeration_size) =
+    agglomeration(architecture(grid), grid, minimum_coarse_size)
+
+small_enough_to_gather(arch, N, agglomeration_size) = false
+small_enough_to_gather(::Distributed, N, agglomeration_size) = N ≤ agglomeration_size
 
 agglomeration(arch, grid, minimum_coarse_size) = ()
 agglomeration(::Distributed, grid, minimum_coarse_size) = (Agglomeration(grid, minimum_coarse_size),)
@@ -142,10 +149,10 @@ function Agglomeration(grid, minimum_coarse_size)
                     βᵛ = Field{Center, Face, Nothing}(global_grid))
     return Agglomeration(global_grid, coefficients, VelocityVector(global_grid), VelocityVector(global_grid),
                          VelocityVector(global_grid), Field{Center, Center, Nothing}(global_grid),
-                         coarse_levels(global_grid, minimum_coarse_size))
+                         coarse_levels(global_grid, minimum_coarse_size, 0))
 end
 
-function coarse_levels(grid, cx, cy, minimum_coarse_size)
+function coarse_levels(grid, cx, cy, minimum_coarse_size, agglomeration_size)
     coarse = coarsened_grid(grid, cx, cy)
     level = (grid = coarse,
              coarsening = (cx, cy),
@@ -157,7 +164,7 @@ function coarse_levels(grid, cx, cy, minimum_coarse_size)
              b = VelocityVector(coarse),
              q = VelocityVector(coarse),
              scratch = Field{Center, Center, Nothing}(coarse))
-    return (level, coarse_levels(coarse, minimum_coarse_size)...)
+    return (level, coarse_levels(coarse, minimum_coarse_size, agglomeration_size)...)
 end
 
 function coarsened_grid(grid, cx, cy)
@@ -243,8 +250,7 @@ end
 
 # `x ≈ A⁻¹ b` from a zero initial guess; `q` and `t` are workspace on the same grid.
 function v_cycle!(x, b, q, t, coefficients, ::Tuple{}, walls, P)
-    fill!(x, 0)
-    smooth!(x, b, q, t, coefficients, walls, P.smoother, P.coarsest_sweeps)
+    smooth_from_zero!(x, b, q, t, coefficients, walls, P.smoother, P.coarsest_sweeps)
     return nothing
 end
 
@@ -259,16 +265,15 @@ end
 
 function v_cycle!(x, b, q, t, coefficients, levels::Tuple, walls, P)
     coarse = first(levels)
-    fill!(x, 0)
-    smooth!(x, b, q, t, coefficients, walls, P.smoother, P.smoothing_sweeps)
-    fill_halo_regions!(x)
+    smooth_from_zero!(x, b, q, t, coefficients, walls, P.smoother, P.smoothing_sweeps)
+    fill_velocity_halos!(x)
     ssa_operator!(q, x, coefficients.η̄H, coefficients.η̄Hᶠᶠ, coefficients.βᵘ, coefficients.βᵛ, walls)
     subtract!(q, b, q)
-    fill_halo_regions!(q)
+    fill_velocity_halos!(q)
     restrict!(coarse.b, q, coarse.η̄H, coefficients.η̄H, coarse.coarsening)
     coarse_coefficients = (η̄H = coarse.η̄H, η̄Hᶠᶠ = coarse.η̄Hᶠᶠ, βᵘ = coarse.βᵘ, βᵛ = coarse.βᵛ)
     v_cycle!(coarse.x, coarse.b, coarse.q, coarse.scratch, coarse_coefficients, Base.tail(levels), walls, P)
-    fill_halo_regions!(coarse.x)
+    fill_velocity_halos!(coarse.x)
     prolongate!(x, coarse.x, coefficients.η̄H, coarse.η̄H, coarse.coarsening)
     smooth!(x, b, q, t, coefficients, walls, P.smoother, P.smoothing_sweeps)
     return nothing
@@ -278,10 +283,27 @@ function smooth!(x, b, q, t, coefficients, walls, smoother, sweeps)
     (; η̄H, η̄Hᶠᶠ, βᵘ, βᵛ) = coefficients
     grid = η̄H.grid
     for _ in 1:sweeps
-        fill_halo_regions!(x)
+        fill_velocity_halos!(x)
         ssa_operator!(q, x, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls)
         relax!(x, b, q, t, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls, grid, smoother)
     end
+    return nothing
+end
+
+# Both components' messages are posted before either is waited on.
+function fill_velocity_halos!(x)
+    fill_halo_regions!(x; async = true)
+    synchronize_communication!((x.u, x.v))
+    return nothing
+end
+
+# From `x = 0` the first sweep needs neither a halo fill nor the operator, since `A x = 0`.
+function smooth_from_zero!(x, b, q, t, coefficients, walls, smoother, sweeps)
+    (; η̄H, η̄Hᶠᶠ, βᵘ, βᵛ) = coefficients
+    fill!(x, 0)
+    fill!(q, 0)
+    relax!(x, b, q, t, η̄H, η̄Hᶠᶠ, βᵘ, βᵛ, walls, η̄H.grid, smoother)
+    smooth!(x, b, q, t, coefficients, walls, smoother, sweeps - 1)
     return nothing
 end
 
