@@ -60,12 +60,15 @@ end
 calving_front(grid) = PartialCellFront(grid; calving = VonMisesCalving(grid; stress_threshold = 1e5))
 
 multigrid(grid) = StressBalanceMultigridPreconditioner(grid; smoother = LineJacobi())
+partly_gathered_multigrid(grid) = StressBalanceMultigridPreconditioner(grid; smoother = LineJacobi(), agglomeration_size = 128)
 
 cases = ((name = "grounded slope", serial = (; bed = grounded_bed), distributed = (; bed = grounded_bed)),
          (name = "von Mises calving", serial = (; bed = grounded_bed, masking = calving_front),
                                       distributed = (; bed = grounded_bed, masking = calving_front)),
          (name = "multigrid", serial = (; bed = floating_bed, preconditioner = multigrid),
-                              distributed = (; bed = floating_bed, preconditioner = multigrid)))
+                              distributed = (; bed = floating_bed, preconditioner = multigrid)),
+         (name = "multigrid gathered below 128 cells", serial = (; bed = floating_bed, preconditioner = partly_gathered_multigrid),
+                                                       distributed = (; bed = floating_bed, preconditioner = partly_gathered_multigrid)))
 
 @testset "$distributed matches serial on $child_architecture: $(case.name), $(join(ranks(partition), "×")) ranks" for distributed in distributed_architectures,
                                                                                                       partition in (Partition(2, 2), Partition(4, 1)), case in cases
@@ -81,15 +84,16 @@ cases = ((name = "grounded slope", serial = (; bed = grounded_bed), distributed 
     end
 end
 
-# Below the last level a rank can halve as the global grid would be, the levels are gathered and coarsened on one grid.
+# Below the last level a rank can halve as the global grid would be, or once small, the levels are gathered and coarsened on one grid.
 global_sizes(levels::Tuple{}) = ()
 global_sizes(levels::Tuple{<:Nunatak.Agglomeration}) = global_sizes(first(levels).levels)
 global_sizes(levels::Tuple) = (size(reconstruct_global_grid(first(levels).grid)), global_sizes(Base.tail(levels))...)
 
-@testset "$distributed multigrid levels match serial: $(join(ranks(partition), "×")) ranks" for distributed in distributed_architectures,
-                                                                                    partition in (Partition(2, 2), Partition(4, 1))
+@testset "$distributed multigrid levels match serial: $(join(ranks(partition), "×")) ranks, gathered below $agglomeration_size cells" for distributed in distributed_architectures,
+                                                                                    partition in (Partition(2, 2), Partition(4, 1)),
+                                                                                    agglomeration_size in (0, 128, 2^16)
     grid(arch) = RectilinearGrid(arch; size = (Nx, Ny), halo = (4, 4), x = (0, L), y = (0, Ny * L / Nx), topology = (Bounded, Bounded, Flat))
-    serial = StressBalanceMultigridPreconditioner(grid(child_architecture))
-    distributed_preconditioner = StressBalanceMultigridPreconditioner(grid(distributed(child_architecture; partition)))
+    serial = StressBalanceMultigridPreconditioner(grid(child_architecture); agglomeration_size)
+    distributed_preconditioner = StressBalanceMultigridPreconditioner(grid(distributed(child_architecture; partition)); agglomeration_size)
     @test global_sizes(distributed_preconditioner.levels) == global_sizes(serial.levels)
 end
