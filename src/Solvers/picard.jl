@@ -61,7 +61,7 @@ julia> picard_solve!(x, picard, solver, x -> nothing, fill!(VelocityVector(grid)
 ```
 """
 function picard_solve!(x, picard::PicardIteration{<:FixedIterations}, linear_solver, update_coefficients!, b, args...)
-    for _ in 1:picard.iteration_control.iterations
+    @trace mincut=true track_numbers=false for _ in 1:picard.iteration_control.iterations
         update_coefficients!(x, args...)
         solve!(x, linear_solver, b, args...)
     end

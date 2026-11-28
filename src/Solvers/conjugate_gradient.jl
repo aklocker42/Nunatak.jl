@@ -176,7 +176,7 @@ function conjugate_gradient!(x, operation!, solver, b, args...)
 end
 
 function iterate_conjugate_gradient!(x, operation!, solver, control::FixedIterations, ρ, args...)
-    for _ in 1:control.iterations
+    @trace mincut=true track_numbers=false for _ in 1:control.iterations
         ρ = conjugate_gradient_step!(x, operation!, solver, ρ, args...)
     end
     return control.iterations

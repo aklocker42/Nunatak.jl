@@ -9,6 +9,7 @@ DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Oceananigans = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
+ReactantCore = "a3311ec8-5e00-46d5-b541-4f83e724a433"
 
 [weakdeps]
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
@@ -26,4 +27,5 @@ KernelAbstractions = "0.9.39"
 LinearAlgebra = "1"
 Oceananigans = "0.117"
 Reactant = "0.2.300"
+ReactantCore = "0.1"
 julia = "1.12"

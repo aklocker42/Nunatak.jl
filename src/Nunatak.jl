@@ -36,6 +36,7 @@ using Oceananigans.Operators: δxᶠᶜᶜ, δyᶠᶜᶜ, δxᶜᶠᶜ, δyᶜ�
                               ℑxᶠᵃᵃ, ℑyᵃᶠᵃ, ℑxᶜᵃᵃ, ℑyᵃᶜᵃ, ℑxyᶜᶜᵃ, ℑxyᶠᶠᵃ, ℑxyᶠᶜᵃ, ℑxyᶜᶠᵃ
 using Oceananigans.TimeSteppers: TimeStepper, Clock, SplitRungeKuttaTimeStepper
 using Oceananigans.Utils: prettysummary
+using ReactantCore: @trace
 
 import Oceananigans.Advection: cell_advection_timescale
 import Oceananigans.Diagnostics: cell_diffusion_timescale
